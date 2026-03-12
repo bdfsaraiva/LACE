@@ -65,7 +65,11 @@ const AdminChatRoomView = () => {
 
         } catch (err) {
             console.error("Failed to fetch admin chat room data:", err);
-            setError(err.response?.data?.detail || err.message || 'Failed to load chat room data.');
+            const warningMessage = err.response?.data?.detail || err.message || 'Failed to load chat room data.';
+            navigate(`/admin/projects/${projectId}`, {
+                state: { removeChatRoomId: Number(roomId), warningMessage }
+            });
+            return;
         } finally {
             setLoading(false);
         }

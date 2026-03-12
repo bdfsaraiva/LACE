@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projects as projectsApi, annotations as annotationsApi, auth } from '../utils/api';
+import { projects as projectsApi, annotations as annotationsApi, adjacencyPairs as adjacencyPairsApi, auth } from '../utils/api';
 import MessageBubble from './MessageBubble';
 import SmartThreadCard from './SmartThreadCard';
+import Modal from './Modal';
 import './AnnotatorChatRoomPage.css';
 
 const parseApiError = (error) => {
@@ -28,6 +29,17 @@ const THREAD_COLORS = [
   '#DC2626', // Rose
 ];
 
+const RELATION_COLORS = [
+  '#2563EB', // Blue
+  '#16A34A', // Green
+  '#DC2626', // Red
+  '#9333EA', // Purple
+  '#F59E0B', // Amber
+  '#0EA5E9', // Sky
+  '#14B8A6', // Teal
+  '#F97316', // Orange
+];
+
 const AnnotatorChatRoomPage = () => {
   const { projectId, roomId } = useParams();
   const navigate = useNavigate();
@@ -37,17 +49,40 @@ const AnnotatorChatRoomPage = () => {
   const [allThreads, setAllThreads] = useState([]);
   const [threadDetails, setThreadDetails] = useState({});
   const [threadColors, setThreadColors] = useState({});
+  const [project, setProject] = useState(null);
+  const [annotationMode, setAnnotationMode] = useState('disentanglement');
+  const [relationTypes, setRelationTypes] = useState([]);
+  const [adjacencyPairs, setAdjacencyPairs] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [chatRoomName, setChatRoomName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // New state for enhanced functionality
   const [highlightedUserId, setHighlightedUserId] = useState(null);
+  const [hoveredUserId, setHoveredUserId] = useState(null);
   const [highlightedThreadId, setHighlightedThreadId] = useState(null);
-  const [showInstructions, setShowInstructions] = useState(true);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [showScrollToTop, setShowScrollToTop] = useState(false);
   const [useConstrainedLayout, setUseConstrainedLayout] = useState(false);
+  const [dragSourceMessageId, setDragSourceMessageId] = useState(null);
+  const [dragHoverMessageId, setDragHoverMessageId] = useState(null);
+  const [pairSourceMessageId, setPairSourceMessageId] = useState(null);
+  const [pendingPair, setPendingPair] = useState(null);
+  const [showPairModal, setShowPairModal] = useState(false);
+  const [relationTypeColors, setRelationTypeColors] = useState({});
+  const [messagePositions, setMessagePositions] = useState({});
+  const [messagesScrollHeight, setMessagesScrollHeight] = useState(0);
+  const [selectedRelationId, setSelectedRelationId] = useState(null);
+  const [hoveredRelationId, setHoveredRelationId] = useState(null);
+  const [replyHoverIds, setReplyHoverIds] = useState(null);
+  const [contextMenu, setContextMenu] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    targetMessageId: null
+  });
   const [statistics, setStatistics] = useState({
     totalMessages: 0,
     annotatedMessages: 0,
@@ -57,21 +92,6 @@ const AnnotatorChatRoomPage = () => {
     messagesPerThread: {},
     annotatorsPerThread: {}
   });
-
-  // Scroll position tracking
-  useEffect(() => {
-    const messagesContainer = messagesContentRef.current;
-    if (!messagesContainer) return;
-
-    const handleScroll = () => {
-      const scrollTop = messagesContainer.scrollTop;
-      const scrollThreshold = 300; // Show button after scrolling 300px
-      setShowScrollToTop(scrollTop > scrollThreshold);
-    };
-
-    messagesContainer.addEventListener('scroll', handleScroll);
-    return () => messagesContainer.removeEventListener('scroll', handleScroll);
-  }, []);
 
   // Scroll to top function
   const scrollToTop = () => {
@@ -90,6 +110,14 @@ const AnnotatorChatRoomPage = () => {
       colors[threadId] = THREAD_COLORS[index % THREAD_COLORS.length];
     });
     setThreadColors(colors);
+  }, []);
+
+  const assignRelationTypeColors = useCallback((types) => {
+    const colors = {};
+    types.forEach((type, index) => {
+      colors[type] = RELATION_COLORS[index % RELATION_COLORS.length];
+    });
+    setRelationTypeColors(colors);
   }, []);
 
   const processAnnotations = (annotationsData) => {
@@ -174,6 +202,59 @@ const AnnotatorChatRoomPage = () => {
     });
   }, []);
 
+  const abbreviateRelationType = (relationType) => {
+    if (!relationType) return '';
+    const words = relationType.split(/[\s_-]+/).filter(Boolean);
+    if (words.length === 1) {
+      return words[0].slice(0, 3).toUpperCase();
+    }
+    return words.map((word) => word[0]).join('').slice(0, 4).toUpperCase();
+  };
+
+  const updateMessagePositions = useCallback(() => {
+    const container = messagesContentRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const nodes = container.querySelectorAll('[data-message-id]');
+    const positions = {};
+    nodes.forEach((node) => {
+      const rect = node.getBoundingClientRect();
+      const centerY = rect.top - containerRect.top + rect.height / 2 + container.scrollTop;
+      const id = node.getAttribute('data-message-id');
+      if (id) {
+        positions[id] = centerY;
+      }
+    });
+    setMessagePositions(positions);
+    setMessagesScrollHeight(container.scrollHeight);
+  }, []);
+
+  const rafRef = useRef(null);
+  const requestPositionUpdate = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+    }
+    rafRef.current = requestAnimationFrame(() => {
+      updateMessagePositions();
+    });
+  }, [updateMessagePositions]);
+
+  // Scroll position tracking
+  useEffect(() => {
+    const messagesContainer = messagesContentRef.current;
+    if (!messagesContainer) return;
+
+    const handleScroll = () => {
+      const scrollTop = messagesContainer.scrollTop;
+      const scrollThreshold = 300; // Show button after scrolling 300px
+      setShowScrollToTop(scrollTop > scrollThreshold);
+      requestPositionUpdate();
+    };
+
+    messagesContainer.addEventListener('scroll', handleScroll);
+    return () => messagesContainer.removeEventListener('scroll', handleScroll);
+  }, [requestPositionUpdate]);
+
   const fetchChatRoomData = useCallback(async () => {
     // Guard clause to prevent fetching with invalid IDs
     if (isNaN(parseInt(projectId, 10)) || isNaN(parseInt(roomId, 10))) {
@@ -185,16 +266,44 @@ const AnnotatorChatRoomPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const [messagesData, annotationsData, userData] = await Promise.all([
+      const projectData = await projectsApi.getProject(projectId);
+      setProject(projectData);
+      setAnnotationMode(projectData.annotation_type || 'disentanglement');
+      setRelationTypes(projectData.relation_types || []);
+      assignRelationTypeColors(projectData.relation_types || []);
+
+      const requests = [
+        projectsApi.getChatRoom(projectId, roomId),
         projectsApi.getChatMessages(projectId, roomId, 0, 1000),
-        annotationsApi.getChatRoomAnnotations(projectId, roomId),
         auth.getCurrentUser()
-      ]);
+      ];
+
+      if (projectData.annotation_type === 'adjacency_pairs') {
+        requests.push(adjacencyPairsApi.getChatRoomPairs(projectId, roomId));
+      } else {
+        requests.push(annotationsApi.getChatRoomAnnotations(projectId, roomId));
+      }
+
+      const [chatRoomData, messagesData, userData, thirdPayload] = await Promise.all(requests);
       
+      setChatRoomName(chatRoomData?.name || '');
       setMessages(messagesData);
       setCurrentUser(userData);
-      processAnnotations(annotationsData);
-      calculateStatistics(messagesData, annotationsData);
+
+      if (projectData.annotation_type === 'adjacency_pairs') {
+        setAdjacencyPairs(thirdPayload);
+        setAnnotationsMap({});
+        setAllThreads([]);
+        setThreadDetails({});
+        setThreadColors({});
+        setStatistics((prev) => ({
+          ...prev,
+          totalMessages: messagesData.length
+        }));
+      } else {
+        processAnnotations(thirdPayload);
+        calculateStatistics(messagesData, thirdPayload);
+      }
 
     } catch (err) {
       console.error('Error fetching chat room data:', err);
@@ -207,6 +316,27 @@ const AnnotatorChatRoomPage = () => {
   useEffect(() => {
     fetchChatRoomData();
   }, [fetchChatRoomData]);
+
+  useEffect(() => {
+    requestPositionUpdate();
+  }, [messages, adjacencyPairs, requestPositionUpdate]);
+
+  useEffect(() => {
+    requestPositionUpdate();
+  }, [showInstructions, useConstrainedLayout, annotationMode, requestPositionUpdate]);
+
+  useEffect(() => {
+    const handleResize = () => requestPositionUpdate();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [requestPositionUpdate]);
+
+  useEffect(() => {
+    if (!contextMenu.visible) return;
+    const handleClickOutside = () => setContextMenu({ visible: false, x: 0, y: 0, targetMessageId: null });
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [contextMenu.visible]);
 
   const handleCreateAnnotation = async (messageId, threadName) => {
     setIsSubmitting(true);
@@ -247,16 +377,159 @@ const AnnotatorChatRoomPage = () => {
     }
   };
 
+  const refreshAdjacencyPairs = useCallback(async () => {
+    const pairs = await adjacencyPairsApi.getChatRoomPairs(projectId, roomId);
+    setAdjacencyPairs(pairs);
+    return pairs;
+  }, [projectId, roomId]);
+
+  const handlePairDragStart = (messageId) => {
+    setDragSourceMessageId(messageId);
+    setPairSourceMessageId(messageId);
+  };
+
+  const handlePairDrop = (targetMessageId) => {\n    if (!dragSourceMessageId || dragSourceMessageId === targetMessageId) {\n      setDragSourceMessageId(null);\n      setDragHoverMessageId(null);\n      return;\n    }\n    if (!isBackwardLinkAllowed(dragSourceMessageId, targetMessageId)) {\n      setError('You can only link a turn to an earlier turn.');\n      setDragSourceMessageId(null);\n      setDragHoverMessageId(null);\n      return;\n    }\n    setPendingPair({ from: dragSourceMessageId, to: targetMessageId });\n    setShowPairModal(true);\n  };
+
+  const handlePairDragOver = (messageId) => {
+    setDragHoverMessageId(messageId);
+  };
+
+  const handlePairSourceSelect = (messageId) => {
+    setPairSourceMessageId((prev) => prev === messageId ? null : messageId);
+  };
+
+  const handlePairContextMenu = (messageId, event) => {
+    if (annotationMode !== 'adjacency_pairs') return;
+    event.preventDefault();
+    if (!pairSourceMessageId || pairSourceMessageId === messageId) {
+      setPairSourceMessageId(messageId);
+      return;
+    }
+    setContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      targetMessageId: messageId
+    });
+  };
+
+  const handleCreateAdjacencyPairDirect = async (relationType, targetMessageId) => {\n    if (!isBackwardLinkAllowed(pairSourceMessageId, targetMessageId)) {\n      setError('You can only link a turn to an earlier turn.');\n      setContextMenu({ visible: false, x: 0, y: 0, targetMessageId: null });\n      return;\n    }
+    if (!pairSourceMessageId || !targetMessageId || pairSourceMessageId === targetMessageId) return;
+    setIsSubmitting(true);
+    try {
+      await adjacencyPairsApi.createAdjacencyPair(projectId, roomId, {
+        from_message_id: pairSourceMessageId,
+        to_message_id: targetMessageId,
+        relation_type: relationType
+      });
+      await refreshAdjacencyPairs();
+    } catch (err) {
+      console.error('Error creating adjacency pair:', err);
+      setError(parseApiError(err));
+    } finally {
+      setIsSubmitting(false);
+      setContextMenu({ visible: false, x: 0, y: 0, targetMessageId: null });
+    }
+  };
+
+  const handleCreateAdjacencyPair = async (relationType) => {\n    if (pendingPair && !isBackwardLinkAllowed(pendingPair.from, pendingPair.to)) {\n      setError('You can only link a turn to an earlier turn.');\n      setPendingPair(null);\n      setShowPairModal(false);\n      setDragSourceMessageId(null);\n      setDragHoverMessageId(null);\n      return;\n    }
+    if (!pendingPair) return;
+    setIsSubmitting(true);
+    try {
+      await adjacencyPairsApi.createAdjacencyPair(projectId, roomId, {
+        from_message_id: pendingPair.from,
+        to_message_id: pendingPair.to,
+        relation_type: relationType
+      });
+      await refreshAdjacencyPairs();
+    } catch (err) {
+      console.error('Error creating adjacency pair:', err);
+      setError(parseApiError(err));
+    } finally {
+      setIsSubmitting(false);
+      setPendingPair(null);
+      setShowPairModal(false);
+      setDragSourceMessageId(null);
+      setDragHoverMessageId(null);
+    }
+  };
+
+  const handleDeleteAdjacencyPair = async (pairId) => {
+    setIsSubmitting(true);
+    try {
+      await adjacencyPairsApi.deleteAdjacencyPair(projectId, roomId, pairId);
+      await refreshAdjacencyPairs();
+      if (selectedRelationId === pairId) {
+        setSelectedRelationId(null);
+      }
+    } catch (err) {
+      console.error('Error deleting adjacency pair:', err);
+      setError(parseApiError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateAdjacencyPair = async (pair, relationType) => {
+    if (!pair || pair.relation_type === relationType) return;
+    setIsSubmitting(true);
+    try {
+      await adjacencyPairsApi.deleteAdjacencyPair(projectId, roomId, pair.id);
+      await adjacencyPairsApi.createAdjacencyPair(projectId, roomId, {
+        from_message_id: pair.from_message_id,
+        to_message_id: pair.to_message_id,
+        relation_type: relationType
+      });
+      const pairs = await refreshAdjacencyPairs();
+      const updated = pairs.find((p) =>
+        p.from_message_id === pair.from_message_id &&
+        p.to_message_id === pair.to_message_id &&
+        p.relation_type === relationType
+      );
+      setSelectedRelationId(updated ? updated.id : null);
+    } catch (err) {
+      console.error('Error updating adjacency pair:', err);
+      setError(parseApiError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Handle user click highlighting
   const handleUserClick = (userId) => {
     setHighlightedUserId(highlightedUserId === userId ? null : userId);
     setHighlightedThreadId(null); // Clear thread highlighting
   };
 
+  const handleUserHover = (userId) => {
+    setHoveredUserId(userId);
+  };
+
+  const handleUserHoverEnd = () => {
+    setHoveredUserId(null);
+  };
+
   // Handle thread click highlighting
   const handleThreadClick = (threadId) => {
     setHighlightedThreadId(highlightedThreadId === threadId ? null : threadId);
     setHighlightedUserId(null); // Clear user highlighting
+  };
+
+  const handleReplyHover = (currentMessageId, replyToTurnId) => {
+    if (!replyToTurnId) {
+      setReplyHoverIds(null);
+      return;
+    }
+    const replyToMessage = messages.find((msg) => String(msg.turn_id) === String(replyToTurnId));
+    if (!replyToMessage) {
+      setReplyHoverIds(null);
+      return;
+    }
+    setReplyHoverIds(new Set([String(currentMessageId), String(replyToMessage.id)]));
+  };
+
+  const clearReplyHover = () => {
+    setReplyHoverIds(null);
   };
 
   // Handle message selection from hover card
@@ -279,13 +552,85 @@ const AnnotatorChatRoomPage = () => {
   if (loading) return <div className="loading">Loading chat room...</div>;
   if (error) return <div className="error">{error}</div>;
 
+
+  const adjacencyLines = adjacencyPairs.map((pair) => {
+    const fromY = messagePositions[String(pair.from_message_id)];
+    const toY = messagePositions[String(pair.to_message_id)];
+    if (fromY == null || toY == null) return null;
+    const color = relationTypeColors[pair.relation_type] || '#6B7280';
+    const label = abbreviateRelationType(pair.relation_type);
+    return {
+      id: pair.id,
+      fromId: pair.from_message_id,
+      toId: pair.to_message_id,
+      fromY,
+      toY,
+      color,
+      label
+    };
+  }).filter(Boolean);
+
+  const laneGap = 14;
+  const laneBase = 70;
+  const sortedLines = [...adjacencyLines].sort((a, b) => {
+    const aStart = Math.min(a.fromY, a.toY);
+    const bStart = Math.min(b.fromY, b.toY);
+    if (aStart !== bStart) return aStart - bStart;
+    const aEnd = Math.max(a.fromY, a.toY);
+    const bEnd = Math.max(b.fromY, b.toY);
+    return aEnd - bEnd;
+  });
+  const laneEnds = [];
+  const lineWithLanes = sortedLines.map((line) => {
+    const start = Math.min(line.fromY, line.toY);
+    const end = Math.max(line.fromY, line.toY);
+    let laneIndex = 0;
+    while (laneIndex < laneEnds.length && start <= laneEnds[laneIndex]) {
+      laneIndex += 1;
+    }
+    if (laneIndex === laneEnds.length) {
+      laneEnds.push(end);
+    } else {
+      laneEnds[laneIndex] = end;
+    }
+    return { ...line, lane: laneIndex };
+  });
+  const maxLane = laneEnds.length > 0 ? laneEnds.length - 1 : 0;
+  const relationsWidth = laneBase + laneGap * (maxLane + 1);
+
+    const messageIndexMap = {};
+  messages.forEach((msg, idx) => {
+    messageIndexMap[msg.id] = idx;
+  });
+
+  const isBackwardLinkAllowed = (fromId, toId) => {
+    if (fromId == null || toId == null) return true;
+    const fromIndex = messageIndexMap[fromId];
+    const toIndex = messageIndexMap[toId];
+    if (fromIndex == null || toIndex == null) return true;
+    return toIndex < fromIndex;
+  };  const dragPreviewLine = (() => {
+    if (!dragSourceMessageId || !dragHoverMessageId || dragSourceMessageId === dragHoverMessageId) return null;
+    const fromY = messagePositions[String(dragSourceMessageId)];
+    const toY = messagePositions[String(dragHoverMessageId)];
+    if (fromY == null || toY == null) return null;
+    return { fromY, toY, x: relationsWidth - 12 };
+  })();
+
+  const selectedRelation = adjacencyPairs.find((pair) => pair.id === selectedRelationId) || null;
+  const hoveredRelation = adjacencyPairs.find((pair) => pair.id === hoveredRelationId) || null;
+  const activeRelation = selectedRelation || hoveredRelation;
+  const activeLinkedIds = activeRelation
+    ? new Set([String(activeRelation.from_message_id), String(activeRelation.to_message_id)])
+    : null;
+
   return (
     <div className="annotator-chat-room">
       <div className="chat-room-header">
         <button onClick={() => navigate(`/projects/${projectId}`)} className="back-button">
           ← Back to Project
         </button>
-        <h2>Chat Disentanglement Annotation</h2>
+        <h2>{annotationMode === 'adjacency_pairs' ? (chatRoomName || 'Annotation') : 'Chat Disentanglement Annotation'}</h2>
         <div className="header-controls">
           <button 
             className="layout-toggle-btn"
@@ -294,202 +639,434 @@ const AnnotatorChatRoomPage = () => {
           >
             {useConstrainedLayout ? "📜" : "📋"}
           </button>
+          <button 
+            className="layout-toggle-btn"
+            onClick={() => setShowInstructions(!showInstructions)}
+            title={showInstructions ? "Hide help" : "Show help"}
+          >
+            ?
+          </button>
           <div className="stats">
-            <span className="stat-item">{statistics.totalMessages} turns</span>
-            <span className="stat-item">{statistics.totalThreads} threads</span>
-            <span className="stat-item progress-stat">
-              {statistics.annotationPercentage}% annotated
-            </span>
+            {annotationMode === 'adjacency_pairs' ? (
+              <>
+                <span className="stat-item">{statistics.totalMessages} turns</span>
+                <span className="stat-item">{adjacencyPairs.length} relations</span>
+              </>
+            ) : (
+              <>
+                <span className="stat-item">{statistics.totalMessages} turns</span>
+                <span className="stat-item">{statistics.totalThreads} threads</span>
+                <span className="stat-item progress-stat">
+                  {statistics.annotationPercentage}% annotated
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>
+      {showInstructions && (
+        <div className="instruction-panel">
+          <div className="manual-content">
+            {annotationMode === 'adjacency_pairs' && (
+              <>
+                <div className="manual-section">
+                  <h4>Adjacency Pairs Task</h4>
+                  <p>
+                    Your task is to link turns that form an adjacency pair. Drag one turn onto another to create a relation.
+                  </p>
+                </div>
 
-      <div className="chat-room-content">
-        <div className={`messages-container ${useConstrainedLayout ? 'constrained' : ''}`}>
-          <div className="messages-header">
-            <div className="messages-header-top">
-              <h3>Turns</h3>
-              <button 
-                className="dismiss-instructions-btn"
-                onClick={() => setShowInstructions(!showInstructions)}
-                title={showInstructions ? "Hide instructions" : "Show instructions"}
-              >
-                {showInstructions ? "Hide Help" : "Show Help"}
-              </button>
-            </div>
-            
-            {showInstructions && (
-              <div className="instruction-panel">
-                <div className="manual-content">
-                  <div className="manual-section">
-                    <h4>📋 Chat Disentanglement Task</h4>
-                    <p>
-                      Your task is to read chat interactions <strong>turn by turn</strong> and identify which <strong>thread</strong> each turn belongs to.
-                      This process helps separate entangled conversations in group chats.
-                    </p>
-                  </div>
+                <div className="manual-section">
+                  <h4>How to Annotate</h4>
+                  <ol>
+                    <li>Drag a source turn onto a target turn</li>
+                    <li>Select the relation type from the list</li>
+                    <li>Repeat for all relevant pairs</li>
+                  </ol>
+                </div>
 
-                  <div className="manual-section">
-                    <h4>🔤 Key Definitions</h4>
-                    <ul>
-                      <li><strong>Turn:</strong> A set of sentences sent by the same participant (what you see as message bubbles)</li>
-                      <li><strong>Thread:</strong> A group of interconnected turns that share reply relations or the same topic</li>
-                      <li><strong>Chat Room:</strong> The entire conversation with all participants</li>
-                    </ul>
-                  </div>
+                <div className="manual-section">
+                  <h4>Tips</h4>
+                  <ul>
+                    <li>Click a turn to select it as source, then right-click another to link</li>
+                    <li>Right-click a target turn to pick a relation type</li>
+                    <li>A turn can have multiple outgoing and incoming relations</li>
+                  </ul>
+                </div>
+              </>
+            )}
 
-                  <div className="manual-section">
-                    <h4>🎯 How to Annotate</h4>
-                    <ol>
-                      <li><strong>Click "Add Thread"</strong> on any turn to assign it to a thread</li>
-                      <li><strong>Thread naming:</strong> You can use any labels (0, 1, 2, A, B, "topic1", etc.) - what matters is <strong>grouping turns consistently</strong></li>
-                      <li><strong>Group related turns</strong> - turns about the same topic should have the same thread identifier</li>
-                      <li><strong>Create new threads</strong> when topics change or new discussions emerge</li>
-                      <li><strong>Focus on logical grouping</strong> - the system measures agreement based on which turns you group together, not the specific names you use</li>
-                    </ol>
-                  </div>
+            {annotationMode !== 'adjacency_pairs' && (
+              <>
+                <div className="manual-section">
+                  <h4>Chat Disentanglement Task</h4>
+                  <p>
+                    Your task is to read chat interactions <strong>turn by turn</strong> and identify which <strong>thread</strong> each turn belongs to.
+                    This process helps separate entangled conversations in group chats.
+                  </p>
+                </div>
 
-                  <div className="manual-section">
-                    <h4>📝 Annotation Guidelines</h4>
-                    <div className="guideline-grid">
-                      <div className="guideline-item">
-                        <strong>1. Check Reply Relationships</strong>
-                        <p>If a turn replies to another, they usually belong to the same thread (unless topic changes)</p>
-                      </div>
-                      <div className="guideline-item">
-                        <strong>2. Track User Sequences</strong>
-                        <p>Click <span className="highlight-example user-highlight">User IDs</span> to see all turns from the same user</p>
-                      </div>
-                      <div className="guideline-item">
-                        <strong>3. Read Turn Content</strong>
-                        <p>Check if the message relates to previous threads by topic</p>
-                      </div>
-                      <div className="guideline-item">
-                        <strong>4. Moderator Messages</strong>
-                        <p>Group administrative/encouragement messages into a single meta-thread</p>
-                      </div>
-                      <div className="guideline-item">
-                        <strong>5. Short Responses</strong>
-                        <p>"Yes", "I agree", "Exactly" → link to the thread they're responding to</p>
-                      </div>
-                      <div className="guideline-item">
-                        <strong>6. Unclear Messages</strong>
-                        <p>If you can't understand due to errors or can't connect to previous turns → create new thread</p>
-                      </div>
+                <div className="manual-section">
+                  <h4>Key Definitions</h4>
+                  <ul>
+                    <li><strong>Turn:</strong> A set of sentences sent by the same participant (what you see as message bubbles)</li>
+                    <li><strong>Thread:</strong> A group of interconnected turns that share reply relations or the same topic</li>
+                    <li><strong>Chat Room:</strong> The entire conversation with all participants</li>
+                  </ul>
+                </div>
+
+                <div className="manual-section">
+                  <h4>How to Annotate</h4>
+                  <ol>
+                    <li><strong>Click "Add Thread"</strong> on any turn to assign it to a thread</li>
+                    <li><strong>Thread naming:</strong> You can use any labels (0, 1, 2, A, B, "topic1", etc.) - what matters is <strong>grouping turns consistently</strong></li>
+                    <li><strong>Group related turns</strong> - turns about the same topic should have the same thread identifier</li>
+                    <li><strong>Create new threads</strong> when topics change or new discussions emerge</li>
+                    <li><strong>Focus on logical grouping</strong> - the system measures agreement based on which turns you group together, not the specific names you use</li>
+                  </ol>
+                </div>
+
+                <div className="manual-section">
+                  <h4>Annotation Guidelines</h4>
+                  <div className="guideline-grid">
+                    <div className="guideline-item">
+                      <strong>1. Check Reply Relationships</strong>
+                      <p>If a turn replies to another, they usually belong to the same thread (unless topic changes)</p>
                     </div>
-                  </div>
-
-                  <div className="manual-section">
-                    <h4>🎨 Visual Helpers</h4>
-                    <ul>
-                      <li><strong>Thread Colors:</strong> Each thread has a unique color for easy identification</li>
-                      <li><strong>User Highlighting:</strong> Click user IDs to highlight all their turns</li>
-                      <li><strong>Thread Cards:</strong> Click thread cards on the right to highlight thread turns</li>
-                      <li><strong>Progress Tracking:</strong> See your annotation progress below</li>
-                    </ul>
-                  </div>
-
-                  <div className="manual-section">
-                    <h4>🔬 How Agreement is Measured</h4>
-                    <div className="agreement-explanation">
-                      <p>
-                        <strong>Important:</strong> The system uses the <strong>Hungarian algorithm</strong> to calculate inter-annotator agreement. 
-                        This means it measures how well annotators group the same turns together, regardless of what labels they use.
-                      </p>
-                      <div className="example-box">
-                        <strong>Example:</strong><br/>
-                        • Annotator A: turns 1-5 → "Thread 0", turns 6-10 → "Thread 1"<br/>
-                        • Annotator B: turns 1-5 → "Topic A", turns 6-10 → "Topic B"<br/>
-                        • Annotator C: turns 1-5 → "5", turns 6-10 → "7"<br/>
-                        <span className="result">→ <strong>100% agreement!</strong> All grouped the same turns together</span>
-                      </div>
+                    <div className="guideline-item">
+                      <strong>2. Track User Sequences</strong>
+                      <p>Click <span className="highlight-example user-highlight">User IDs</span> to see all turns from the same user</p>
                     </div>
-                  </div>
-
-                  <div className="progress-details">
-                    <div className="progress-bar">
-                      <div 
-                        className="progress-fill"
-                        style={{ width: `${statistics.annotationPercentage}%` }}
-                      ></div>
+                    <div className="guideline-item">
+                      <strong>3. Read Turn Content</strong>
+                      <p>Check if the message relates to previous threads by topic</p>
                     </div>
-                    <div className="progress-text">
-                      {statistics.annotatedMessages} of {statistics.totalMessages} turns annotated 
-                      ({statistics.unannotatedMessages} remaining)
+                    <div className="guideline-item">
+                      <strong>4. Moderator Messages</strong>
+                      <p>Group administrative/encouragement messages into a single meta-thread</p>
+                    </div>
+                    <div className="guideline-item">
+                      <strong>5. Short Responses</strong>
+                      <p>"Yes", "I agree", "Exactly" ? link to the thread they're responding to</p>
+                    </div>
+                    <div className="guideline-item">
+                      <strong>6. Unclear Messages</strong>
+                      <p>If you can't understand due to errors or can't connect to previous turns ? create new thread</p>
                     </div>
                   </div>
                 </div>
-              </div>
+
+                <div className="manual-section">
+                  <h4>Visual Helpers</h4>
+                  <ul>
+                    <li><strong>Thread Colors:</strong> Each thread has a unique color for easy identification</li>
+                    <li><strong>User Highlighting:</strong> Click user IDs to highlight all their turns</li>
+                    <li><strong>Thread Cards:</strong> Click thread cards on the right to highlight thread turns</li>
+                    <li><strong>Progress Tracking:</strong> See your annotation progress below</li>
+                  </ul>
+                </div>
+
+                <div className="manual-section">
+                  <h4>How Agreement is Measured</h4>
+                  <div className="agreement-explanation">
+                    <p>
+                      <strong>Important:</strong> The system uses the <strong>Hungarian algorithm</strong> to calculate inter-annotator agreement. 
+                      This means it measures how well annotators group the same turns together, regardless of what labels they use.
+                    </p>
+                    <div className="example-box">
+                      <strong>Example:</strong><br/>
+                      � Annotator A: turns 1-5 ? "Thread 0", turns 6-10 ? "Thread 1"<br/>
+                      � Annotator B: turns 1-5 ? "Topic A", turns 6-10 ? "Topic B"<br/>
+                      � Annotator C: turns 1-5 ? "5", turns 6-10 ? "7"<br/>
+                      <span className="result">? <strong>100% agreement!</strong> All grouped the same turns together</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="progress-details">
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill"
+                      style={{ width: `${statistics.annotationPercentage}%` }}
+                    ></div>
+                  </div>
+                  <div className="progress-text">
+                    {statistics.annotatedMessages} of {statistics.totalMessages} turns annotated 
+                    ({statistics.unannotatedMessages} remaining)
+                  </div>
+                </div>
+              </>
             )}
           </div>
-          
-          <div className={`messages-content ${useConstrainedLayout ? 'constrained' : ''}`} ref={messagesContentRef}>
-            {messages.map(message => {
-              const messageAnnotations = annotationsMap[message.id] || [];
-              const isUserHighlighted = highlightedUserId === message.user_id;
-              const isThreadHighlighted = highlightedThreadId && 
-                messageAnnotations.some(ann => ann.thread_id === highlightedThreadId);
+        </div>
+       )}
+      <div className={`chat-room-content ${annotationMode === 'adjacency_pairs' ? 'adjacency-only' : ''}`}>
+        <div className={`messages-container ${useConstrainedLayout ? 'constrained' : ''} ${annotationMode === 'adjacency_pairs' ? 'adjacency-only' : ''}`}>
+          <div
+            className={`messages-content ${useConstrainedLayout ? 'constrained' : ''} ${annotationMode === 'adjacency_pairs' ? 'adjacency-layout' : ''} ${selectedRelation ? 'relation-dimmed' : ''} ${hoveredRelation ? 'relation-hover-dimmed' : ''} ${replyHoverIds ? 'reply-dimmed' : ''} ${hoveredUserId ? 'user-hover-dimmed' : ''}`}
+            ref={messagesContentRef}
+            style={{ '--relations-width': `${relationsWidth}px` }}
+          >
+            {annotationMode === 'adjacency_pairs' && (
+              <div className="relations-column" style={{ width: `${relationsWidth}px` }}>
+                <svg
+                  className="relations-svg"
+                  width={relationsWidth}
+                  height={messagesScrollHeight || 0}
+                  viewBox={`0 0 ${relationsWidth} ${messagesScrollHeight || 0}`}
+                  onClick={() => setSelectedRelationId(null)}
+                >
+                  <defs>
+                    <marker
+                      id="arrowhead"
+                      markerWidth="10"
+                      markerHeight="7"
+                      refX="8"
+                      refY="3.5"
+                      orient="auto"
+                    >
+                      <polygon points="0 0, 10 3.5, 0 7" fill="currentColor" />
+                    </marker>
+                  </defs>
+                  {lineWithLanes.map((line) => {
+                    const midY = (line.fromY + line.toY) / 2;
+                    const x = relationsWidth - 12 - line.lane * laneGap;
+                    const curveOut = x - 56;
+                    const labelX = x - 8;
+                    const isSelected = selectedRelationId === line.id;
+                    return (
+                      <g key={line.id}>
+                        <path
+                          d={`M ${x} ${line.fromY} C ${curveOut} ${line.fromY}, ${curveOut} ${line.toY}, ${x} ${line.toY}`}
+                          stroke={line.color}
+                          strokeWidth={isSelected ? '3' : '2'}
+                          fill="none"
+                          className={`relation-line ${isSelected ? 'selected' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedRelationId(line.id);
+                          }}
+                          onMouseEnter={() => setHoveredRelationId(line.id)}
+                          onMouseLeave={() => setHoveredRelationId(null)}
+                        />
+                        <text
+                          x={labelX}
+                          y={midY}
+                          fill={line.color}
+                          fontSize="12"
+                          fontWeight="700"
+                          dominantBaseline="middle"
+                          className={`relation-label ${isSelected ? 'selected' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedRelationId(line.id);
+                          }}
+                          onMouseEnter={() => setHoveredRelationId(line.id)}
+                          onMouseLeave={() => setHoveredRelationId(null)}
+                        >
+                          {line.label}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {dragPreviewLine && (
+                    <path
+                      d={`M ${dragPreviewLine.x} ${dragPreviewLine.fromY} L ${dragPreviewLine.x} ${dragPreviewLine.toY}`}
+                      stroke="#94A3B8"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeDasharray="4 4"
+                    />
+                  )}
+                </svg>
+              </div>
+            )}
+            <div className="messages-list">
+              {messages.map(message => {
+                const messageAnnotations = annotationsMap[message.id] || [];
+                const isUserHighlighted = highlightedUserId === message.user_id;
+                const isThreadHighlighted = highlightedThreadId && 
+                  messageAnnotations.some(ann => ann.thread_id === highlightedThreadId);
+                // Get thread color for this message
+                const messageThreadId = messageAnnotations.length > 0 ? messageAnnotations[0].thread_id : null;
+                const threadColor = messageThreadId ? threadColors[messageThreadId] : null;
 
-              // Get thread color for this message
-              const messageThreadId = messageAnnotations.length > 0 ? messageAnnotations[0].thread_id : null;
-              const threadColor = messageThreadId ? threadColors[messageThreadId] : null;
-
-              return (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  annotations={messageAnnotations}
-                  existingThreads={allThreads}
-                  currentUserEmail={currentUser?.email}
-                  onAnnotationCreate={(threadName) => handleCreateAnnotation(message.id, threadName)}
-                  onAnnotationDelete={(annotationId) => handleDeleteAnnotation(message.id, annotationId)}
-                  isAnnotating={isSubmitting}
-                  isUserHighlighted={isUserHighlighted}
-                  isThreadHighlighted={isThreadHighlighted}
-                  onUserClick={handleUserClick}
-                  onThreadClick={handleThreadClick}
-                  data-message-id={message.id}
-                  threadColor={threadColor}
-                  threadColors={threadColors}
+                return (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    annotations={messageAnnotations}
+                    existingThreads={allThreads}
+                    currentUserEmail={currentUser?.email}
+                    onAnnotationCreate={(threadName) => handleCreateAnnotation(message.id, threadName)}
+                    onAnnotationDelete={(annotationId) => handleDeleteAnnotation(message.id, annotationId)}
+                    isAnnotating={isSubmitting}
+                    isUserHighlighted={isUserHighlighted}
+                    isThreadHighlighted={isThreadHighlighted}
+                    onUserClick={handleUserClick}
+                    onThreadClick={handleThreadClick}
+                    data-message-id={message.id}
+                    threadColor={threadColor}
+                    threadColors={threadColors}
+                  relationMode={annotationMode === 'adjacency_pairs'}
+                  onPairDragStart={handlePairDragStart}
+                  onPairDrop={handlePairDrop}
+                  onPairDragOver={handlePairDragOver}
+                  onPairSelect={handlePairSourceSelect}
+                  onPairContextMenu={handlePairContextMenu}
+                  isPairSource={pairSourceMessageId === message.id}
+                  isPairTarget={dragHoverMessageId === message.id}
+                  isRelationLinked={
+                    activeLinkedIds ? activeLinkedIds.has(String(message.id)) : false
+                  }
+                  isReplyLinked={
+                    replyHoverIds ? replyHoverIds.has(String(message.id)) : false
+                  }
+                  isUserHoverLinked={hoveredUserId ? hoveredUserId === message.user_id : false}
+                  onReplyHover={(replyToTurnId) => handleReplyHover(message.id, replyToTurnId)}
+                  onReplyHoverEnd={clearReplyHover}
+                  onUserHover={handleUserHover}
+                  onUserHoverEnd={handleUserHoverEnd}
                 />
               );
             })}
           </div>
+          </div>
         </div>
 
-        <div className={`threads-sidebar ${useConstrainedLayout ? 'constrained' : ''}`}>
-          <h3>Chat Threads</h3>
-          {allThreads.length === 0 ? (
-            <p className="no-threads">
-              No threads created yet. Start by adding threads to messages on the left.
-            </p>
-          ) : (
-            <div className={`threads-overview ${useConstrainedLayout ? 'constrained' : ''}`}>
-              <p className="threads-count">{allThreads.length} threads found:</p>
-              <div className="threads-list">
-                {allThreads.map(threadId => {
-                  const thread = threadDetails[threadId];
-                  const isHighlighted = highlightedThreadId === threadId;
-                  const threadColor = threadColors[threadId];
-                  
-                  return (
-                    <SmartThreadCard
-                      key={threadId}
-                      threadId={threadId}
-                      threadDetails={thread}
-                      messages={messages}
-                      isHighlighted={isHighlighted}
-                      onThreadClick={handleThreadClick}
-                      onMessageSelect={handleMessageSelect}
-                      threadColor={threadColor}
-                    />
-                  );
-                })}
+        {annotationMode !== 'adjacency_pairs' && (
+          <div className={`threads-sidebar ${useConstrainedLayout ? 'constrained' : ''}`}>
+            <h3>Chat Threads</h3>
+            {allThreads.length === 0 ? (
+              <p className="no-threads">
+                No threads created yet. Start by adding threads to messages on the left.
+              </p>
+            ) : (
+              <div className={`threads-overview ${useConstrainedLayout ? 'constrained' : ''}`}>
+                <p className="threads-count">{allThreads.length} threads found:</p>
+                <div className="threads-list">
+                  {allThreads.map(threadId => {
+                    const thread = threadDetails[threadId];
+                    const isHighlighted = highlightedThreadId === threadId;
+                    const threadColor = threadColors[threadId];
+                    
+                    return (
+                      <SmartThreadCard
+                        key={threadId}
+                        threadId={threadId}
+                        threadDetails={thread}
+                        messages={messages}
+                        isHighlighted={isHighlighted}
+                        onThreadClick={handleThreadClick}
+                        onMessageSelect={handleMessageSelect}
+                        threadColor={threadColor}
+                      />
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
+          </div>
+        )}
+      </div>
+      <Modal
+        isOpen={showPairModal}
+        onClose={() => {
+          setShowPairModal(false);
+          setPendingPair(null);
+          setDragSourceMessageId(null);
+          setDragHoverMessageId(null);
+        }}
+        title="Select Relation Type"
+        size="small"
+      >
+        {relationTypes.length === 0 ? (
+          <p>No relation types configured for this project.</p>
+        ) : (
+          <div className="relation-type-modal-list">
+            {relationTypes.map((type) => (
+              <button
+                key={type}
+                className="relation-type-button"
+                onClick={() => handleCreateAdjacencyPair(type)}
+                disabled={isSubmitting}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
+      {contextMenu.visible && (
+        <div
+          className="pair-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <div className="pair-context-title">Link to</div>
+          {relationTypes.length === 0 ? (
+            <div className="pair-context-empty">No relation types configured</div>
+          ) : (
+            relationTypes.map((type) => (
+              <button
+                key={type}
+                className="pair-context-item"
+                onClick={() => handleCreateAdjacencyPairDirect(type, contextMenu.targetMessageId)}
+                disabled={isSubmitting}
+              >
+                <span className="pair-context-color" style={{ backgroundColor: relationTypeColors[type] || '#6B7280' }} />
+                {type}
+              </button>
+            ))
           )}
         </div>
-      </div>
+      )}
+      {selectedRelation && (
+        <div className="relation-editor">
+          <div className="relation-editor-header">
+            <div className="relation-editor-title">Relation</div>
+            <button
+              className="relation-editor-close"
+              onClick={() => setSelectedRelationId(null)}
+            >
+              Close
+            </button>
+          </div>
+          <div className="relation-editor-body">
+            <div className="relation-editor-turn">
+              <div className="relation-editor-label">Turn A</div>
+              <div className="relation-editor-text">
+                {messages.find((m) => m.id === selectedRelation.from_message_id)?.turn_text || 'Unavailable'}
+              </div>
+            </div>
+            <div className="relation-editor-turn">
+              <div className="relation-editor-label">Turn B</div>
+              <div className="relation-editor-text">
+                {messages.find((m) => m.id === selectedRelation.to_message_id)?.turn_text || 'Unavailable'}
+              </div>
+            </div>
+            <div className="relation-editor-controls">
+              <label className="relation-editor-label">Relation Type</label>
+              <select
+                className="relation-editor-select"
+                value={selectedRelation.relation_type}
+                onChange={(e) => handleUpdateAdjacencyPair(selectedRelation, e.target.value)}
+                disabled={isSubmitting}
+              >
+                {relationTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+              <button
+                className="relation-editor-delete"
+                onClick={() => handleDeleteAdjacencyPair(selectedRelation.id)}
+                disabled={isSubmitting}
+              >
+                Delete Relation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showScrollToTop && (
         <button className="scroll-to-top-btn" onClick={scrollToTop} title="Scroll to top">
           ↑
@@ -499,4 +1076,22 @@ const AnnotatorChatRoomPage = () => {
   );
 };
 
-export default AnnotatorChatRoomPage; 
+export default AnnotatorChatRoomPage;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -57,6 +57,11 @@ async def create_project(
     _: models.User = Depends(get_current_admin_user)
 ):
     """Create a new project (admin only)"""
+    if project_data.annotation_type == "adjacency_pairs" and not project_data.relation_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Adjacency pair projects must define at least one relation type"
+        )
     return crud.create_project(db, project_data)
 
 @router.get("/projects/{project_id}", response_model=schemas.Project)
@@ -73,6 +78,29 @@ async def get_project(
             detail="Project not found"
         )
     return project
+
+@router.put("/projects/{project_id}", response_model=schemas.Project)
+async def update_project(
+    project_id: int,
+    updates: schemas.ProjectUpdate,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+):
+    """Update project metadata (admin only)"""
+    project = crud.get_project(db, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    if updates.relation_types is not None:
+        target_annotation_type = updates.annotation_type or project.annotation_type
+        if target_annotation_type == "adjacency_pairs" and not updates.relation_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Adjacency pair projects must define at least one relation type"
+            )
+    return crud.update_project(db, project, updates)
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
@@ -135,21 +163,9 @@ async def create_chat_room_and_import_csv(
             detail="File must be a CSV and have a filename"
         )
 
-    # Create chat room using filename (remove extension)
-    chat_room_name = os.path.splitext(file.filename)[0]
-    chat_room_create_schema = schemas.ChatRoomCreate(name=chat_room_name, project_id=project_id)
-    
-    try:
-        new_chat_room = crud.create_chat_room(db, chat_room=chat_room_create_schema)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating chat room '{chat_room_name}': {str(e)}"
-        )
-    
     # Save uploaded file temporarily
     temp_file_path = f"uploads/{file.filename}"
+    new_chat_room = None
     try:
         contents = await file.read()
         os.makedirs("uploads", exist_ok=True)
@@ -161,6 +177,11 @@ async def create_chat_room_and_import_csv(
         
         # Import messages using our simple utility
         messages = import_chat_messages(temp_file_path)
+
+        # Create chat room using filename (remove extension)
+        chat_room_name = os.path.splitext(file.filename)[0]
+        chat_room_create_schema = schemas.ChatRoomCreate(name=chat_room_name, project_id=project_id)
+        new_chat_room = crud.create_chat_room(db, chat_room=chat_room_create_schema)
         
         # Import messages to database
         imported_count = 0
@@ -209,6 +230,12 @@ async def create_chat_room_and_import_csv(
         
     except Exception as e:
         db.rollback()
+        if new_chat_room is not None:
+            try:
+                db.delete(new_chat_room)
+                db.commit()
+            except Exception:
+                db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error processing CSV file: {str(e)}"
@@ -217,6 +244,21 @@ async def create_chat_room_and_import_csv(
         # Clean up temporary file
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+@router.delete("/chat-rooms/{chat_room_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_room(
+    chat_room_id: int,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+):
+    """Delete a chat room (admin only)."""
+    chat_room = crud.get_chat_room(db, chat_room_id)
+    if not chat_room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat room not found"
+        )
+    crud.delete_chat_room(db, chat_room)
 
 # --- Remove or comment out old endpoints --- 
 

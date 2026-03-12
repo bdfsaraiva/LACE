@@ -97,6 +97,10 @@ export const projects = {
         const response = await api.post('/admin/projects', projectData);
         return response.data;
     },
+    updateProject: async (projectId, updates) => {
+        const response = await api.put(`/admin/projects/${projectId}`, updates);
+        return response.data;
+    },
     getProject: async (projectId) => {
         const response = await api.get(`/projects/${projectId}`);
         return response.data;
@@ -186,6 +190,10 @@ export const projects = {
     getChatRooms: async (projectId) => {
         const response = await api.get(`/projects/${projectId}/chat-rooms`);
         return response.data;
+    },
+    deleteChatRoom: async (chatRoomId) => {
+        await api.delete(`/admin/chat-rooms/${chatRoomId}`);
+        return true;
     },
     getChatRoom: async (projectId, roomId) => {
         const response = await api.get(`/projects/${projectId}/chat-rooms/${roomId}`);
@@ -362,6 +370,22 @@ export const annotations = {
                 'Failed to export chat room data. Please try again.'
             );
         }
+    },
+};
+
+// Adjacency Pairs endpoints
+export const adjacencyPairs = {
+    getChatRoomPairs: async (projectId, chatRoomId) => {
+        const response = await api.get(`/projects/${projectId}/chat-rooms/${chatRoomId}/adjacency-pairs/`);
+        return response.data;
+    },
+    createAdjacencyPair: async (projectId, chatRoomId, pairData) => {
+        const response = await api.post(`/projects/${projectId}/chat-rooms/${chatRoomId}/adjacency-pairs/`, pairData);
+        return response.data;
+    },
+    deleteAdjacencyPair: async (projectId, chatRoomId, pairId) => {
+        await api.delete(`/projects/${projectId}/chat-rooms/${chatRoomId}/adjacency-pairs/${pairId}`);
+        return true;
     },
 };
 

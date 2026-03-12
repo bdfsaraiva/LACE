@@ -16,7 +16,26 @@ const MessageBubble = ({
   onThreadClick,
   // New props for thread colors
   threadColor = null,
-  threadColors = {}
+  threadColors = {},
+  // Adjacency pairs mode
+  relationMode = false,
+  onPairDragStart,
+  onPairDrop,
+  onPairDragOver,
+  onPairSelect,
+  onPairContextMenu,
+  isPairSource = false,
+  isPairTarget = false,
+  isRelationLinked = false,
+  isReplyLinked = false,
+  isUserHoverLinked = false,
+  onReplyHover,
+  onReplyHoverEnd,
+  onUserHover,
+  onUserHoverEnd,
+  adjacencyPairsOutgoing = [],
+  adjacencyPairsIncoming = [],
+  onPairDelete
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [showThreadInput, setShowThreadInput] = useState(false);
@@ -36,6 +55,12 @@ const MessageBubble = ({
 
   // Find current user's annotation on this message
   const currentUserAnnotation = annotations.find(ann => ann.annotator_email === currentUserEmail);
+
+  const replyToValue =
+    message.reply_to_turn ??
+    message.reply_to ??
+    message.reply_to_id ??
+    null;
 
   // Extract numeric part from turn_id (e.g., "VAC_R10_001" -> "001")
   const getNumericTurnId = (turnId) => {
@@ -106,13 +131,53 @@ const MessageBubble = ({
     isAnnotating ? 'annotating' : '',
     isUserHighlighted ? 'user-highlighted' : '',
     isThreadHighlighted ? 'thread-highlighted' : '',
-    annotations.length > 0 ? 'has-annotations' : ''
+    annotations.length > 0 ? 'has-annotations' : '',
+    relationMode ? 'relation-mode' : '',
+    isPairSource ? 'pair-source' : '',
+    isPairTarget ? 'pair-target' : '',
+    isRelationLinked ? 'relation-linked' : '',
+    isReplyLinked ? 'reply-linked' : '',
+    isUserHoverLinked ? 'user-hover-linked' : ''
   ].filter(Boolean).join(' ');
+
+  const handleDragStart = (e) => {
+    if (!relationMode || !onPairDragStart) return;
+    e.dataTransfer.setData('text/plain', String(message.id));
+    onPairDragStart(message.id);
+  };
+
+  const handleDrop = (e) => {
+    if (!relationMode || !onPairDrop) return;
+    e.preventDefault();
+    onPairDrop(message.id);
+  };
+
+  const handleDragOver = (e) => {
+    if (!relationMode) return;
+    e.preventDefault();
+    if (onPairDragOver) {
+      onPairDragOver(message.id);
+    }
+  };
 
   return (
     <div 
       className={bubbleClasses}
       data-message-id={message.id}
+      draggable={relationMode}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onClick={() => {
+        if (relationMode && onPairSelect) {
+          onPairSelect(message.id);
+        }
+      }}
+      onContextMenu={(e) => {
+        if (relationMode && onPairContextMenu) {
+          onPairContextMenu(message.id, e);
+        }
+      }}
       style={{
         ...threadColor ? { 
           border: `3px solid ${threadColor}`,
@@ -129,15 +194,22 @@ const MessageBubble = ({
         <span 
           className="user-id"
           onClick={handleUserClick}
-          title={`Click to highlight all turns from ${message.user_id}`}
+          onMouseEnter={() => onUserHover && onUserHover(message.user_id)}
+          onMouseLeave={() => onUserHoverEnd && onUserHoverEnd()}
+//          title={`Click to highlight all turns from ${message.user_id}`}
         >
           <span className="user-id-label">User</span>
           <span className="user-id-value">{message.user_id}</span>
         </span>
-        {message.reply_to_turn && (
-          <span className="reply-to">
-            <span className="reply-to-label">Reply to</span>
-            <span className="reply-to-value">{getNumericTurnId(message.reply_to_turn)}</span>
+        {replyToValue !== null && replyToValue !== undefined && replyToValue !== '' && (
+          <span
+            className="reply-to"
+            onMouseEnter={() => onReplyHover && onReplyHover(replyToValue)}
+            onMouseLeave={() => onReplyHoverEnd && onReplyHoverEnd()}
+//            title="Hover to highlight reply chain"
+          >
+            <span className="reply-to-label">↳</span>
+            <span className="reply-to-value">{getNumericTurnId(replyToValue)}</span>
           </span>
         )}
         {/* Thread indicator for annotated messages */}
@@ -167,7 +239,8 @@ const MessageBubble = ({
         </div>
       )}
 
-      <div className="thread-section">
+      {!relationMode && (
+        <div className="thread-section">
         <button 
           className="add-thread-button"
           onClick={() => setShowThreadInput(!showThreadInput)}
@@ -225,6 +298,7 @@ const MessageBubble = ({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

@@ -22,6 +22,8 @@ class User(UserBase):
 class ProjectBase(BaseModel):
     name: str
     description: Optional[str] = None
+    annotation_type: str = Field(default="disentanglement")
+    relation_types: List[str] = Field(default_factory=list)
 
 class ProjectCreate(ProjectBase):
     pass
@@ -36,6 +38,12 @@ class Project(ProjectBase):
 
 class ProjectList(BaseModel):
     projects: List[Project]
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    annotation_type: Optional[str] = None
+    relation_types: Optional[List[str]] = None
 
 # Chat Room Schemas
 class ChatRoomBase(BaseModel):
@@ -100,6 +108,26 @@ class Annotation(AnnotationBase):
 
 class AnnotationList(BaseModel):
     annotations: List[Annotation]
+
+# Adjacency Pair Schemas
+class AdjacencyPairBase(BaseModel):
+    from_message_id: int
+    to_message_id: int
+    relation_type: str = Field(..., min_length=1, max_length=100)
+
+class AdjacencyPairCreate(AdjacencyPairBase):
+    pass
+
+class AdjacencyPair(AdjacencyPairBase):
+    id: int
+    annotator_id: int
+    annotator_email: str
+    project_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 # Authentication Schemas
 class Token(BaseModel):

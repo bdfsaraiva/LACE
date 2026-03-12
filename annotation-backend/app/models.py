@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship, declarative_base, Mapped, mapped_column
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -17,6 +17,7 @@ class User(Base):
     # Relationships
     project_assignments = relationship("ProjectAssignment", back_populates="user", cascade="all, delete-orphan")
     annotations = relationship("Annotation", back_populates="annotator", cascade="all, delete-orphan")
+    adjacency_pairs = relationship("AdjacencyPair", back_populates="annotator", cascade="all, delete-orphan")
 
 class Project(Base):
     __tablename__ = "projects"
@@ -24,6 +25,8 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
+    annotation_type: Mapped[str] = mapped_column(String, nullable=False, default="disentanglement")
+    relation_types: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -31,6 +34,7 @@ class Project(Base):
     chat_rooms = relationship("ChatRoom", back_populates="project", cascade="all, delete-orphan")
     assignments = relationship("ProjectAssignment", back_populates="project", cascade="all, delete-orphan")
     annotations = relationship("Annotation", back_populates="project", cascade="all, delete-orphan")
+    adjacency_pairs = relationship("AdjacencyPair", back_populates="project", cascade="all, delete-orphan")
 
 class ProjectAssignment(Base):
     __tablename__ = "project_assignments"
@@ -77,6 +81,18 @@ class ChatMessage(Base):
     # Relationships
     chat_room = relationship("ChatRoom", back_populates="messages")
     annotations = relationship("Annotation", back_populates="message", cascade="all, delete-orphan")
+    outgoing_pairs = relationship(
+        "AdjacencyPair",
+        back_populates="from_message",
+        foreign_keys="AdjacencyPair.from_message_id",
+        cascade="all, delete-orphan"
+    )
+    incoming_pairs = relationship(
+        "AdjacencyPair",
+        back_populates="to_message",
+        foreign_keys="AdjacencyPair.to_message_id",
+        cascade="all, delete-orphan"
+    )
     
     # Indexes and constraints
     __table_args__ = (
@@ -106,4 +122,30 @@ class Annotation(Base):
         Index('ix_annotations_message_annotator', 'message_id', 'annotator_id'),
         Index('ix_annotations_thread', 'thread_id'),
         UniqueConstraint('message_id', 'annotator_id', name='uix_message_annotator'),
-    ) 
+    )
+
+class AdjacencyPair(Base):
+    __tablename__ = "adjacency_pairs"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_message_id: Mapped[int] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    to_message_id: Mapped[int] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    annotator_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    from_message = relationship("ChatMessage", foreign_keys=[from_message_id], back_populates="outgoing_pairs")
+    to_message = relationship("ChatMessage", foreign_keys=[to_message_id], back_populates="incoming_pairs")
+    annotator = relationship("User", back_populates="adjacency_pairs")
+    project = relationship("Project", back_populates="adjacency_pairs")
+    
+    # Indexes and constraints
+    __table_args__ = (
+        Index('ix_adjacency_pairs_from', 'from_message_id'),
+        Index('ix_adjacency_pairs_to', 'to_message_id'),
+        Index('ix_adjacency_pairs_project', 'project_id'),
+        UniqueConstraint('from_message_id', 'to_message_id', 'annotator_id', name='uix_adjacency_pair'),
+    )

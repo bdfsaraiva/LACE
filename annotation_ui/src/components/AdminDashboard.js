@@ -16,7 +16,13 @@ const AdminDashboard = () => {
   const [view, setView] = useState('projects'); // 'projects' or 'users'
   const [newUser, setNewUser] = useState({ email: '', password: '', is_admin: false });
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [newProject, setNewProject] = useState({ name: '', description: '' });
+  const [newProject, setNewProject] = useState({
+    name: '',
+    description: '',
+    annotation_type: 'disentanglement',
+    relation_types: []
+  });
+  const [relationTypesInput, setRelationTypesInput] = useState('');
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState({ show: false, user: null });
   const [isDeleting, setIsDeleting] = useState(false);
@@ -51,8 +57,17 @@ const AdminDashboard = () => {
   const handleCreateProject = async (e) => {
     e.preventDefault();
     try {
-      await projectsApi.createProject(newProject);
-      setNewProject({ name: '', description: '' });
+      const cleanedRelationTypes = relationTypesInput
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const payload = {
+        ...newProject,
+        relation_types: newProject.annotation_type === 'adjacency_pairs' ? cleanedRelationTypes : []
+      };
+      await projectsApi.createProject(payload);
+      setNewProject({ name: '', description: '', annotation_type: 'disentanglement', relation_types: [] });
+      setRelationTypesInput('');
       setIsCreatingProject(false);
       fetchData(); // Refresh data to show the new project
     } catch (error) {
@@ -152,12 +167,29 @@ const AdminDashboard = () => {
                   onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                   required
                 />
+                <select
+                  value={newProject.annotation_type}
+                  onChange={(e) => setNewProject({ ...newProject, annotation_type: e.target.value })}
+                  required
+                >
+                  <option value="disentanglement">Chat Disentanglement</option>
+                  <option value="adjacency_pairs">Adjacency Pairs</option>
+                </select>
                 <textarea
                   placeholder="A brief description of the project"
                   value={newProject.description}
                   onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
                   required
                 />
+                {newProject.annotation_type === 'adjacency_pairs' && (
+                  <input
+                    type="text"
+                    placeholder="Relation types (comma-separated, e.g. Question-Answer, Greeting-Response)"
+                    value={relationTypesInput}
+                    onChange={(e) => setRelationTypesInput(e.target.value)}
+                    required
+                  />
+                )}
                 <button type="submit">Create Project</button>
               </form>
             </div>

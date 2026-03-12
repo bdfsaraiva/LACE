@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projects as projectsApi, users as usersApi, annotations as annotationsApi } from '../utils/api';
+import ErrorMessage from './ErrorMessage';
 import './AdminProjectPage.css';
 
 const AdminProjectPage = () => {
     const { projectId } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     
     const [project, setProject] = useState(null);
     const [assignedUsers, setAssignedUsers] = useState([]);
@@ -14,10 +16,13 @@ const AdminProjectPage = () => {
     const [chatRoomAnalytics, setChatRoomAnalytics] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [importError, setImportError] = useState(null);
     const [isAssigning, setIsAssigning] = useState(false);
     const [userToAssign, setUserToAssign] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [relationTypesInput, setRelationTypesInput] = useState('');
+    const [isUpdatingProject, setIsUpdatingProject] = useState(false);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -30,12 +35,13 @@ const AdminProjectPage = () => {
                 projectsApi.getChatRooms(projectId)
             ]);
             setProject(projectData);
+            setRelationTypesInput((projectData.relation_types || []).join(', '));
             setAssignedUsers(assignedUsersData);
             setAllUsers(allUsersData);
             setChatRooms(chatRoomsData);
             
             // Fetch analytics for each chat room
-            await fetchChatRoomAnalytics(chatRoomsData);
+            await fetchChatRoomAnalytics(chatRoomsData, projectData);
         } catch (err) {
             console.error("Failed to fetch project admin data:", err);
             setError(err.response?.data?.detail || 'Failed to load project data.');
@@ -44,9 +50,23 @@ const AdminProjectPage = () => {
         }
     }, [projectId]);
 
-    const fetchChatRoomAnalytics = async (rooms) => {
+    const fetchChatRoomAnalytics = async (rooms, projectData) => {
         const analytics = {};
-        
+
+        if (projectData?.annotation_type !== 'disentanglement') {
+            rooms.forEach((room) => {
+                analytics[room.id] = {
+                    status: 'N/A',
+                    completedAnnotators: 0,
+                    totalAnnotators: 0,
+                    averageAgreement: null,
+                    canAnalyze: false
+                };
+            });
+            setChatRoomAnalytics(analytics);
+            return;
+        }
+
         // Fetch IAA analysis for each chat room
         for (const room of rooms) {
             try {
@@ -86,6 +106,20 @@ const AdminProjectPage = () => {
         fetchData();
     }, [fetchData]);
 
+    useEffect(() => {
+        const removeChatRoomId = location.state?.removeChatRoomId;
+        const warningMessage = location.state?.warningMessage;
+        if (removeChatRoomId) {
+            removeChatRoomFromList(removeChatRoomId);
+        }
+        if (warningMessage) {
+            setError(warningMessage);
+        }
+        if (removeChatRoomId || warningMessage) {
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.state, location.pathname, navigate]);
+
     const handleRemoveUser = async (userId) => {
         if (window.confirm('Are you sure you want to remove this user from the project?')) {
             try {
@@ -117,15 +151,16 @@ const AdminProjectPage = () => {
 
     const handleFileSelect = (e) => {
         setSelectedFile(e.target.files[0]);
+        setImportError(null);
     };
 
     const handleUploadCsv = async () => {
         if (!selectedFile) {
-            setError("Please select a file to upload.");
+            setImportError("Please select a file to upload.");
             return;
         }
         setIsUploading(true);
-        setError(null);
+        setImportError(null);
         try {
             const response = await projectsApi.importCsv(projectId, selectedFile, (progress) => {
                 console.log(`Upload Progress: ${progress}%`);
@@ -135,8 +170,8 @@ const AdminProjectPage = () => {
             document.getElementById('csv-file-input').value = ''; // Clear file input
             fetchData(); // Refresh chat room list
         } catch (err) {
-            console.error("Failed to import CSV:", err);
-            setError(err.message || 'Failed to import CSV.');
+            console.error(err);
+            setImportError(err.message || 'Failed to import CSV.');
         } finally {
             setIsUploading(false);
         }
@@ -152,6 +187,28 @@ const AdminProjectPage = () => {
                 console.error("Failed to delete project:", err);
                 setError(err.response?.data?.detail || 'Failed to delete project.');
             }
+        }
+    };
+
+    const handleUpdateRelationTypes = async (e) => {
+        e.preventDefault();
+        if (!project) return;
+        const cleanedRelationTypes = relationTypesInput
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+        setIsUpdatingProject(true);
+        try {
+            const updated = await projectsApi.updateProject(projectId, {
+                relation_types: cleanedRelationTypes
+            });
+            setProject(updated);
+            setRelationTypesInput((updated.relation_types || []).join(', '));
+        } catch (err) {
+            console.error("Failed to update project:", err);
+            setError(err.response?.data?.detail || 'Failed to update project.');
+        } finally {
+            setIsUpdatingProject(false);
         }
     };
 
@@ -197,8 +254,40 @@ const AdminProjectPage = () => {
         }
     };
 
-    const handleViewChatRoom = (chatRoomId) => {
-        navigate(`/admin/projects/${projectId}/chat-rooms/${chatRoomId}`);
+    const removeChatRoomFromList = (chatRoomId) => {
+        setChatRooms((prev) => prev.filter((room) => room.id !== chatRoomId));
+        setChatRoomAnalytics((prev) => {
+            const updated = { ...prev };
+            delete updated[chatRoomId];
+            return updated;
+        });
+    };
+
+    const handleViewChatRoom = async (chatRoomId) => {
+        try {
+            await projectsApi.getChatRoom(projectId, chatRoomId);
+            navigate(`/admin/projects/${projectId}/chat-rooms/${chatRoomId}`);
+        } catch (err) {
+            console.error("Failed to load chat room:", err);
+            removeChatRoomFromList(chatRoomId);
+            setError(err.response?.data?.detail || 'Failed to load chat room. It was removed from the list.');
+        }
+    };
+
+    const handleDeleteChatRoom = async (chatRoomId, chatRoomName) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to delete the chat room "${chatRoomName}"?\n` +
+            `This will permanently remove all messages and annotations in this room.`
+        );
+        if (!confirmed) return;
+        try {
+            setError(null);
+            await projectsApi.deleteChatRoom(chatRoomId);
+            fetchData();
+        } catch (err) {
+            console.error("Failed to delete chat room:", err);
+            setError(err.response?.data?.detail || 'Failed to delete chat room.');
+        }
     };
 
     const getStatusBadge = (status) => {
@@ -206,7 +295,8 @@ const AdminProjectPage = () => {
             'Complete': { class: 'status-complete', text: 'Annotated' },
             'Partial': { class: 'status-partial', text: 'In Progress' },
             'NotEnoughData': { class: 'status-insufficient', text: 'Insufficient Data' },
-            'Error': { class: 'status-error', text: 'Error' }
+            'Error': { class: 'status-error', text: 'Error' },
+            'N/A': { class: 'status-unknown', text: 'N/A' }
         };
         
         const badge = badges[status] || { class: 'status-unknown', text: 'Unknown' };
@@ -215,10 +305,6 @@ const AdminProjectPage = () => {
 
     if (loading) {
         return <div className="loading-container">Loading project details...</div>;
-    }
-
-    if (error) {
-        return <div className="error-message">Error: {error}</div>;
     }
 
     if (!project) {
@@ -236,6 +322,39 @@ const AdminProjectPage = () => {
                 <h1>Manage Project<br /><span className="project-name">{project.name}</span></h1>
             </header>
             <p className="project-description">{project.description}</p>
+            {error && (
+                <ErrorMessage
+                    type="warning"
+                    title="Warning"
+                    message={error}
+                />
+            )}
+            
+            <div className="management-section">
+                <div className="section-header">
+                    <h2>Project Settings</h2>
+                </div>
+                <div className="settings-grid">
+                    <div>
+                        <strong>Annotation Type:</strong> {project.annotation_type === 'adjacency_pairs' ? 'Adjacency Pairs' : 'Chat Disentanglement'}
+                    </div>
+                </div>
+                {project.annotation_type === 'adjacency_pairs' && (
+                    <form onSubmit={handleUpdateRelationTypes} className="assign-user-form">
+                        <label>Relation Types (comma-separated)</label>
+                        <input
+                            type="text"
+                            value={relationTypesInput}
+                            onChange={(e) => setRelationTypesInput(e.target.value)}
+                            placeholder="Question-Answer, Greeting-Response, etc."
+                            required
+                        />
+                        <button type="submit" className="action-button" disabled={isUpdatingProject}>
+                            {isUpdatingProject ? 'Saving...' : 'Save Relation Types'}
+                        </button>
+                    </form>
+                )}
+            </div>
             
             <div className="management-section">
                 <div className="section-header">
@@ -303,6 +422,13 @@ const AdminProjectPage = () => {
                     <button onClick={handleUploadCsv} disabled={!selectedFile || isUploading} className="action-button">
                         {isUploading ? 'Uploading...' : 'Upload CSV'}
                     </button>
+                    {importError && (
+                        <ErrorMessage
+                            type="warning"
+                            title="Import Failed"
+                            message={importError}
+                        />
+                    )}
                 </div>
 
                 {chatRooms.length === 0 ? (
@@ -362,6 +488,12 @@ const AdminProjectPage = () => {
                                                     >
                                                         Export
                                                     </button>
+                                                    <button
+                                                        onClick={() => handleDeleteChatRoom(room.id, room.name)}
+                                                        className="action-button delete"
+                                                    >
+                                                        Delete
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -373,7 +505,7 @@ const AdminProjectPage = () => {
                 )}
                 
                 {/* Status Legend */}
-                {chatRooms.length > 0 && (
+                {chatRooms.length > 0 && project.annotation_type === 'disentanglement' && (
                     <div className="status-legend">
                         <h4>Status Legend:</h4>
                         <div className="legend-items">

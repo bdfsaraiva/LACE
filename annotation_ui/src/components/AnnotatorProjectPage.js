@@ -44,14 +44,19 @@ const AnnotatorProjectPage = () => {
                     <h2>{project.name}</h2>
                 </div>
                 <p>{project.description}</p>
-                <div className="project-actions">
-                    <Link 
-                        to={`/projects/${projectId}/my-annotations`}
-                        className="my-annotations-button"
-                    >
-                        📊 View My Annotations
-                    </Link>
-                </div>
+                <p className="project-meta">
+                    Annotation Type: {project.annotation_type === 'adjacency_pairs' ? 'Adjacency Pairs' : 'Chat Disentanglement'}
+                </p>
+                {project.annotation_type !== 'adjacency_pairs' && (
+                    <div className="project-actions">
+                        <Link 
+                            to={`/projects/${projectId}/my-annotations`}
+                            className="my-annotations-button"
+                        >
+                            📊 View My Annotations
+                        </Link>
+                    </div>
+                )}
             </header>
             
             <h3>Available Chat Rooms for Annotation</h3>

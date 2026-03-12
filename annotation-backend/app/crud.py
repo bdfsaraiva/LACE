@@ -43,12 +43,27 @@ def get_projects(db: Session, skip: int = 0, limit: int = 100) -> List[models.Pr
 def create_project(db: Session, project: schemas.ProjectCreate) -> models.Project:
     db_project = models.Project(
         name=project.name,
-        description=project.description
+        description=project.description,
+        annotation_type=project.annotation_type,
+        relation_types=project.relation_types
     )
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
     return db_project
+
+def update_project(db: Session, project: models.Project, updates: schemas.ProjectUpdate) -> models.Project:
+    if updates.name is not None:
+        project.name = updates.name
+    if updates.description is not None:
+        project.description = updates.description
+    if updates.annotation_type is not None:
+        project.annotation_type = updates.annotation_type
+    if updates.relation_types is not None:
+        project.relation_types = updates.relation_types
+    db.commit()
+    db.refresh(project)
+    return project
 
 def delete_project(db: Session, project: models.Project) -> None:
     """Delete a project from the database."""
@@ -72,6 +87,11 @@ def create_chat_room(db: Session, chat_room: schemas.ChatRoomCreate) -> models.C
     db.commit()
     db.refresh(db_chat_room)
     return db_chat_room
+
+def delete_chat_room(db: Session, chat_room: models.ChatRoom) -> None:
+    """Delete a chat room from the database."""
+    db.delete(chat_room)
+    db.commit()
 
 def get_annotations_for_chat_room(
     db: Session, chat_room_id: int
@@ -173,6 +193,35 @@ def create_annotation(db: Session, annotation: schemas.AnnotationCreate) -> mode
     db.commit()
     db.refresh(db_annotation)
     return db_annotation
+
+# Adjacency Pair CRUD operations
+def get_adjacency_pair(db: Session, pair_id: int) -> Optional[models.AdjacencyPair]:
+    return db.query(models.AdjacencyPair).filter(models.AdjacencyPair.id == pair_id).first()
+
+def get_adjacency_pairs_for_chat_room_by_annotator(
+    db: Session, chat_room_id: int, annotator_id: int
+) -> List[Tuple[models.AdjacencyPair, str]]:
+    return (
+        db.query(models.AdjacencyPair, models.User.email)
+        .join(models.ChatMessage, models.AdjacencyPair.from_message_id == models.ChatMessage.id)
+        .join(models.User, models.AdjacencyPair.annotator_id == models.User.id)
+        .filter(
+            models.ChatMessage.chat_room_id == chat_room_id,
+            models.AdjacencyPair.annotator_id == annotator_id
+        )
+        .all()
+    )
+
+def get_all_adjacency_pairs_for_chat_room_admin(
+    db: Session, chat_room_id: int
+) -> List[Tuple[models.AdjacencyPair, str]]:
+    return (
+        db.query(models.AdjacencyPair, models.User.email)
+        .join(models.ChatMessage, models.AdjacencyPair.from_message_id == models.ChatMessage.id)
+        .join(models.User, models.AdjacencyPair.annotator_id == models.User.id)
+        .filter(models.ChatMessage.chat_room_id == chat_room_id)
+        .all()
+    )
 
 # ProjectAssignment CRUD operations
 def get_project_assignment(db: Session, assignment_id: int) -> Optional[models.ProjectAssignment]:

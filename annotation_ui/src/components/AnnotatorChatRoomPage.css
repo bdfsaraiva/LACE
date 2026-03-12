@@ -125,6 +125,14 @@
   margin: 0 auto;
 }
 
+.chat-room-content.adjacency-only {
+  grid-template-columns: 1fr;
+  max-width: none;
+  width: 100%;
+  padding: 1rem 0rem;
+  margin: 0;
+}
+
 /* Messages Container */
 .messages-container {
   background-color: var(--background-color-secondary);
@@ -137,9 +145,13 @@
   min-height: calc(100vh - 120px);
 }
 
+.messages-container.adjacency-only {
+  width: 100%;
+}
+
 .messages-header {
   background-color: var(--background-color-tertiary);
-  padding: 1.5rem;
+  padding: 1rem;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -390,6 +402,101 @@
   scroll-behavior: smooth;
 }
 
+.messages-content.adjacency-layout {
+  display: grid;
+  grid-template-columns: var(--relations-width, 90px) 1fr;
+  column-gap: 1rem;
+  align-items: start;
+  position: relative;
+}
+
+.relations-column {
+  position: relative;
+  min-height: 100%;
+}
+
+.relations-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  overflow: visible;
+}
+
+.relation-line {
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.messages-content.relation-dimmed .relation-line {
+  opacity: 0.2;
+}
+
+.messages-content.relation-dimmed .relation-line.selected {
+  opacity: 1;
+}
+
+.messages-content.relation-hover-dimmed .relation-line {
+  opacity: 0.2;
+}
+
+.messages-content.relation-hover-dimmed .relation-line.selected,
+.messages-content.relation-hover-dimmed .relation-line:hover {
+  opacity: 1;
+}
+
+.messages-content.relation-dimmed .relation-label {
+  opacity: 0.2;
+}
+
+.messages-content.relation-dimmed .relation-label.selected {
+  opacity: 1;
+}
+
+.messages-content.relation-hover-dimmed .relation-label {
+  opacity: 0.2;
+}
+
+.messages-content.relation-hover-dimmed .relation-label.selected,
+.messages-content.relation-hover-dimmed .relation-label:hover {
+  opacity: 1;
+}
+
+.messages-content.relation-dimmed .message-bubble {
+  opacity: 0.25;
+}
+
+.messages-content.relation-dimmed .message-bubble.relation-linked {
+  opacity: 1;
+}
+
+.messages-content.reply-dimmed .message-bubble {
+  opacity: 0.25;
+}
+
+.messages-content.reply-dimmed .message-bubble.reply-linked {
+  opacity: 1;
+}
+
+.messages-content.user-hover-dimmed .message-bubble {
+  opacity: 0.25;
+}
+
+.messages-content.user-hover-dimmed .message-bubble.user-hover-linked {
+  opacity: 1;
+}
+.messages-content.relation-hover-dimmed .message-bubble {
+  opacity: 0.25;
+}
+
+.messages-content.relation-hover-dimmed .message-bubble.relation-linked {
+  opacity: 1;
+}
+
+.messages-list {
+  min-width: 0;
+}
+
 /* Custom scrollbar for messages-content */
 .messages-content::-webkit-scrollbar {
   width: 22px;
@@ -629,6 +736,69 @@
   color: var(--primary-color);
 } 
 
+/* Adjacency pairs sidebar */
+.relation-types-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .chat-room-content.adjacency-only {
+    padding: 0.5rem;
+  }
+
+  .messages-content.adjacency-layout {
+    grid-template-columns: 70px 1fr;
+    column-gap: 0.75rem;
+  }
+}
+
+.relation-type-chip {
+  background-color: var(--background-color-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.relation-help {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+  margin-top: 1rem;
+}
+
+/* Relation type modal */
+.relation-type-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.relation-type-button {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius);
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.relation-type-button:hover:not(:disabled) {
+  background-color: var(--primary-color-dark);
+}
+
+.relation-type-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Scroll to Top Button */
 .scroll-to-top-btn {
   position: fixed;
@@ -683,4 +853,159 @@
     height: 2.5rem;
     font-size: 1.2rem;
   }
-} 
+}
+
+/* Context menu for relation linking */
+.pair-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background-color: var(--background-color-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--card-shadow);
+  padding: 0.5rem;
+  min-width: 200px;
+}
+
+.pair-context-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.pair-context-empty {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+  padding: 0.5rem 0.25rem;
+}
+
+.pair-context-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--border-radius);
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pair-context-item:hover:not(:disabled) {
+  background-color: var(--background-color-tertiary);
+}
+
+.pair-context-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pair-context-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Relation editor panel */
+.relation-editor {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  width: min(520px, 90vw);
+  max-height: 70vh;
+  background-color: var(--background-color-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--card-shadow);
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+}
+
+.relation-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.relation-editor-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-color-primary);
+}
+
+.relation-editor-close {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-color-primary);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.relation-editor-body {
+  padding: 0.75rem 1rem 1rem;
+  overflow-y: auto;
+}
+
+.relation-editor-turn {
+  margin-bottom: 0.75rem;
+}
+
+.relation-editor-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-color-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.relation-editor-text {
+  background-color: var(--background-color-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-color-primary);
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.relation-editor-controls {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.relation-editor-select {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+  background-color: var(--background-color-tertiary);
+  color: var(--text-color-primary);
+  font-size: 0.85rem;
+}
+
+.relation-editor-delete {
+  align-self: flex-start;
+  background-color: var(--error-color);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}

@@ -158,6 +158,12 @@
     border-radius: var(--border-radius);
 }
 
+.assign-user-form label {
+    font-size: 0.9rem;
+    color: var(--text-color-secondary);
+    margin-right: 0.5rem;
+}
+
 .assign-user-form select {
     width: 100%;
     padding: 0.5rem;
@@ -165,6 +171,23 @@
     border-radius: var(--border-radius);
     font-size: 1rem;
     background-color: var(--background-color-tertiary);
+    color: var(--text-color-primary);
+}
+
+.assign-user-form input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 1rem;
+    background-color: var(--background-color-tertiary);
+    color: var(--text-color-primary);
+}
+
+.settings-grid {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
     color: var(--text-color-primary);
 }
 
