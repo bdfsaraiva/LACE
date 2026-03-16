@@ -23,9 +23,6 @@ services:
       - "3721:3721"
     environment:
       - REACT_APP_API_URL=http://${SERVER_IP:-localhost}:8000
-    volumes:
-      - ./annotation_ui:/app
-      - /app/node_modules
     depends_on:
       - backend
 
