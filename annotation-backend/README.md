@@ -27,8 +27,7 @@ DATABASE_URL=sqlite:///./data/app.db
 SECRET_KEY=change-me-min-32-chars
 FIRST_ADMIN_USERNAME=admin
 FIRST_ADMIN_PASSWORD=admin
-SERVER_IP=localhost
-FRONTEND_PORT=3721
+CORS_ORIGINS=["http://localhost:3721"]
 ```
 
 ## Run the server

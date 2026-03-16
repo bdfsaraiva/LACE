@@ -6,13 +6,11 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/app.db}
+      - DATABASE_URL=${DATABASE_URL}
       - SECRET_KEY=${SECRET_KEY}
       - FIRST_ADMIN_USERNAME=${FIRST_ADMIN_USERNAME}
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}
-      - SERVER_IP=${SERVER_IP:-localhost}
-      - FRONTEND_PORT=${FRONTEND_PORT:-3721}
-      - CORS_ORIGINS=["http://localhost:3721","http://127.0.0.1:3721","http://${SERVER_IP:-localhost}:${FRONTEND_PORT:-3721}"]
+      - CORS_ORIGINS=${CORS_ORIGINS}
     volumes:
       - ./annotation-backend:/app
       - ./data:/app/data
@@ -22,7 +20,7 @@ services:
     ports:
       - "3721:3721"
     environment:
-      - REACT_APP_API_URL=http://${SERVER_IP:-localhost}:8000
+      - REACT_APP_API_URL=${REACT_APP_API_URL}
     depends_on:
       - backend
 

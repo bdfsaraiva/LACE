@@ -2,14 +2,14 @@
 
 ## Environment
 Use .env at repo root for Docker or local dev. Required values:
-- SERVER_IP
+- DATABASE_URL
+- CORS_ORIGINS
 - SECRET_KEY (min 32 chars)
+- REACT_APP_API_URL
 
 Optional values:
-- DATABASE_URL
 - FIRST_ADMIN_USERNAME
 - FIRST_ADMIN_PASSWORD
-- FRONTEND_PORT
 
 ## Docker build and run
 ```bash

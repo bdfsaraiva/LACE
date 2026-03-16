@@ -12,9 +12,9 @@ Full-stack web app to manage annotation projects, assign annotators, and collect
 - Built-in IAA analysis for disentanglement
 
 ## Architecture
-- Backend: FastAPI + SQLAlchemy + Alembic
+- Backend: FastAPI + SQLAlchemy
 - Frontend: React
-- Database: SQLite (default)
+- Database: SQLite (local), Postgres (production)
 
 ## Quickstart (Docker)
 ```bash
@@ -46,11 +46,10 @@ npm start
 ```
 
 ## Configuration
-The main required setting is SERVER_IP in .env:
-- Local: SERVER_IP=localhost
-- LAN: SERVER_IP=192.168.1.100
-
-This controls the frontend API URL and backend CORS.
+Set explicit values per environment in .env:
+- DATABASE_URL
+- CORS_ORIGINS
+- REACT_APP_API_URL
 
 ## Docs
 - docs/ARCHITECTURE.md
@@ -58,7 +57,7 @@ This controls the frontend API URL and backend CORS.
 
 ## Repository layout
 ```
-annotation-backend/     FastAPI backend + Alembic migrations
+annotation-backend/     FastAPI backend
 annotation_ui/          React frontend
 conversion_tools/       Excel import utilities
 docker-compose.yml
