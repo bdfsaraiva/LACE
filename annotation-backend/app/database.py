@@ -4,10 +4,16 @@ from .config import get_settings
 
 settings = get_settings()
 
-# Create SQLite engine with proper configuration
+database_url = settings.SQLALCHEMY_DATABASE_URL
+
+# Only SQLite uses check_same_thread
+connect_args = {}
+if database_url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
 engine = create_engine(
-    settings.SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    database_url,
+    connect_args=connect_args
 )
 
 # Create session factory
