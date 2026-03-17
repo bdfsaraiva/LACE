@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projects as projectsApi, users as usersApi } from '../utils/api';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorMessage from './ErrorMessage';
 import Modal from './Modal';
 import ConfirmationModal from './ConfirmationModal';
 import './AdminDashboard.css';
@@ -12,7 +11,6 @@ const AdminDashboard = () => {
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [view, setView] = useState('projects'); // 'projects' or 'users'
   const [newUser, setNewUser] = useState({ username: '', password: '', is_admin: false });
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -28,10 +26,10 @@ const AdminDashboard = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [editUser, setEditUser] = useState({ id: null, username: '', password: '', is_admin: false });
+  const [warningModal, setWarningModal] = useState({ open: false, message: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       // Fetch both sets of data in parallel for efficiency
       const [projectsResponse, usersResponse] = await Promise.all([
@@ -42,7 +40,10 @@ const AdminDashboard = () => {
       setUsers(usersResponse);
     } catch (err) {
       console.error("Failed to fetch dashboard data:", err);
-      setError(err.response?.data?.detail || 'Failed to load data. Please try again.');
+      setWarningModal({
+        open: true,
+        message: err.response?.data?.detail || 'Failed to load data. Please try again.'
+      });
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,10 @@ const AdminDashboard = () => {
       fetchData(); // Refresh data to show the new project
     } catch (error) {
       console.error("Failed to create project:", error);
-      setError(error.response?.data?.detail || 'Failed to create project');
+      setWarningModal({
+        open: true,
+        message: error.response?.data?.detail || 'Failed to create project'
+      });
     }
   };
 
@@ -87,7 +91,10 @@ const AdminDashboard = () => {
       fetchData(); // Refresh all data
     } catch (error) {
       console.error("Failed to create user:", error);
-      setError(error.response?.data?.detail || 'Failed to create user');
+      setWarningModal({
+        open: true,
+        message: error.response?.data?.detail || 'Failed to create user'
+      });
     }
   };
 
@@ -116,7 +123,10 @@ const AdminDashboard = () => {
       fetchData();
     } catch (error) {
       console.error("Failed to update user:", error);
-      setError(error.response?.data?.detail || 'Failed to update user');
+      setWarningModal({
+        open: true,
+        message: error.response?.data?.detail || 'Failed to update user'
+      });
     }
   };
 
@@ -130,7 +140,10 @@ const AdminDashboard = () => {
       fetchData(); // Refresh all data
     } catch (error) {
       console.error("Error deleting user:", error);
-      setError(error.response?.data?.detail || 'Failed to delete user');
+      setWarningModal({
+        open: true,
+        message: error.response?.data?.detail || 'Failed to delete user'
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -138,16 +151,6 @@ const AdminDashboard = () => {
 
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." size="large" />;
-  }
-
-  if (error) {
-    return (
-      <ErrorMessage 
-        message={error} 
-        title="Dashboard Error"
-        onRetry={fetchData}
-      />
-    );
   }
 
   return (
@@ -416,6 +419,23 @@ const AdminDashboard = () => {
           />
         </div>
       )}
+
+      <Modal
+        isOpen={warningModal.open}
+        onClose={() => setWarningModal({ open: false, message: '' })}
+        title="Warning"
+        size="small"
+      >
+        <p>{warningModal.message}</p>
+        <div className="modal-actions">
+          <button
+            className="primary-button"
+            onClick={() => setWarningModal({ open: false, message: '' })}
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 };
