@@ -1,12 +1,34 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it."
+message: "If you use this software, please cite it using the metadata below."
 title: "Annotation Tool for Chat Disentanglement and Adjacency Pairs"
-authors:
-  - name: "Bruno Ferreira-Saraiva"
-    email: "bruno.saraiva@ulusofona.pt"
-  - name: "Zuil Pirola"
-  - name: "Fabio Lopes"
-
-license: "MIT"
 version: "0.2.0"
 date-released: "2026-03-12"
+license: MIT
+
+authors:
+  - family-names: "Ferreira-Saraiva"
+    given-names: "Bruno"
+    email: "bruno.saraiva@ulusofona.pt"
+  - family-names: "Pirola"
+    given-names: "Zuil"
+  - family-names: "Lopes"
+    given-names: "Fabio"
+
+abstract: >
+  A full-stack web application for managing multi-annotator projects focused on
+  chat disentanglement (grouping conversation turns into threads) and adjacency-pair
+  annotation (directed links between turns with typed relation labels).
+  The tool provides an admin dashboard for project and user management, an annotator UI
+  for efficient turn-by-turn annotation, CSV import with preview, JSON/ZIP export,
+  and built-in inter-annotator agreement analysis using the Hungarian algorithm.
+
+keywords:
+  - annotation
+  - chat disentanglement
+  - adjacency pairs
+  - inter-annotator agreement
+  - computational linguistics
+  - natural language processing
+  - conversation analysis
+
+

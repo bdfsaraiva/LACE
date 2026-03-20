@@ -75,9 +75,13 @@ docker-compose.override.yml
 data/
 uploads/
 *.csv
+!docs/sample_chat_room.csv
 !requirements.txt
 !test_api.sh
 analysis/
+
+# Screenshots (add your own, don't track binaries)
+docs/screenshots/
 
 
 # Node/React (for annotation_ui)
