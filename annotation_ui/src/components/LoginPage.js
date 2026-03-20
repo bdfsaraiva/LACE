@@ -26,6 +26,10 @@ const LoginPage = () => {
 
     return (
         <div className="login-container">
+            <div className="login-brand">
+                <h1>LACE</h1>
+                <p>Labelling Adjacency and Conversation Entanglement</p>
+            </div>
             <form onSubmit={handleSubmit} className="login-form">
                 <h2>Login</h2>
                 {error && <p className="error-message">{error}</p>}

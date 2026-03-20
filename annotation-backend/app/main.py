@@ -60,8 +60,8 @@ def init_db():
 
 
 app = FastAPI(
-    title="Annotation Backend",
-    description="Backend for the annotation system",
+    title="LACE — Labelling Adjacency and Conversation Entanglement",
+    description="Backend API for LACE, a multi-annotator platform for chat disentanglement and adjacency pair annotation.",
     version="1.0.0"
 )
 

@@ -1,11 +1,11 @@
-# Annotation Tool for Chat Disentanglement and Adjacency Pairs
+# LACE — Labelling Adjacency and Conversation Entanglement
 
 [![Backend Tests](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/backend-tests.yml)
 [![Frontend Build](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/frontend-build.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/frontend-build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
-A full-stack web application for managing multi-annotator projects focused on:
+**LACE** (*Labelling Adjacency and Conversation Entanglement*) is a full-stack web application for managing multi-annotator projects focused on:
 
 - **Chat Disentanglement** — group conversation turns into threads
 - **Adjacency Pairs** — create directed links between turns with typed relations

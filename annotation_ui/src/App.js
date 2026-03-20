@@ -29,7 +29,7 @@ function App() {
     return (
         <div className="app-container">
             <header className="app-header">
-                <h1>Annotation Tool</h1>
+                <h1>LACE</h1>
                 <AuthMenu theme={theme} toggleTheme={toggleTheme} />
             </header>
             <main className="app-main">
