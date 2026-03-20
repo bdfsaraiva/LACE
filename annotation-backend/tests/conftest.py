@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 # Ensure test DB is used before importing app modules.
 os.environ["DATABASE_URL"] = "sqlite:///./test_backend.db"
 os.environ["SECRET_KEY"] = "test-secret-key-32chars-minimum-123456"
+os.environ["CORS_ORIGINS"] = '["http://localhost:3000"]'
 os.environ["FIRST_ADMIN_USERNAME"] = "test_admin"
 os.environ["FIRST_ADMIN_PASSWORD"] = "test_admin_pass"
 os.environ["PASSWORD_MIN_LENGTH"] = "4"
