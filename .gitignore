@@ -101,6 +101,5 @@ build/
 .nuxt/
 .nitro/
 .output/
-/.claude/
-/docs/softwarex_paper_notes.md
-/docs/paper.md
+.claude/
+docs/Paper/

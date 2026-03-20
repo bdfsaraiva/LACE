@@ -1,9 +1,6 @@
 # LACE — Labelling Adjacency and Conversation Entanglement
 
-[![Backend Tests](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/backend-tests.yml)
-[![Frontend Build](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/frontend-build.yml/badge.svg)](https://github.com/YOUR_ORG/YOUR_REPO/actions/workflows/frontend-build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 **LACE** (*Labelling Adjacency and Conversation Entanglement*) is a full-stack web application for managing multi-annotator projects focused on:
 
@@ -17,7 +14,6 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 ## Table of Contents
 
 - [Features](#features)
-- [Screenshots](#screenshots)
 - [Quickstart (Docker)](#quickstart-docker)
 - [Local Development](#local-development)
 - [Configuration](#configuration)
@@ -26,7 +22,6 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 - [Running Tests](#running-tests)
 - [Citing This Work](#citing-this-work)
 - [Contributing](#contributing)
-- [Licence](#licence)
 
 ---
 
@@ -44,20 +39,6 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 | **Dark/Light Mode** | User-selectable theme |
 | **Admin Dashboard** | Full project, user, and chat-room lifecycle management |
 | **REST API** | Documented OpenAPI/Swagger interface at `/docs` |
-
----
-
-## Screenshots
-
-> *(Add screenshots to `docs/screenshots/` and update these links)*
-
-| Adjacency Pairs annotation | Chat Disentanglement |
-|---|---|
-| ![adjacency pairs](docs/screenshots/adjacency_pairs.png) | ![disentanglement](docs/screenshots/disentanglement.png) |
-
-| Admin Dashboard | IAA Analysis |
-|---|---|
-| ![admin](docs/screenshots/admin_dashboard.png) | ![iaa](docs/screenshots/iaa_analysis.png) |
 
 ---
 
@@ -175,30 +156,7 @@ npm test             # watch mode
 
 ## Citing This Work
 
-If you use this software in your research, please cite the paper:
-
-```bibtex
-@article{YOUR_PAPER_KEY,
-  title   = {Title of the SoftwareX paper},
-  author  = {Ferreira-Saraiva, Bruno and Pirola, Zuil and Lopes, Fabio},
-  journal = {SoftwareX},
-  year    = {2026},
-  doi     = {YOUR_PAPER_DOI}
-}
-```
-
-Or cite the software archive on Zenodo (see [`CITATION.cff`](CITATION.cff)):
-
-```bibtex
-@software{annotation_tool_2026,
-  title   = {Annotation Tool for Chat Disentanglement and Adjacency Pairs},
-  author  = {Ferreira-Saraiva, Bruno and Pirola, Zuil and Lopes, Fabio},
-  year    = {2026},
-  version = {0.2.0},
-  doi     = {10.5281/zenodo.XXXXXXX},
-  url     = {https://github.com/YOUR_ORG/YOUR_REPO}
-}
-```
+If you use LACE in your research, please use the metadata in [`CITATION.cff`](CITATION.cff).
 
 ---
 
@@ -208,9 +166,3 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 - [Report a bug](../../issues/new?template=bug_report.md)
 - [Request a feature](../../issues/new?template=feature_request.md)
-
----
-
-## Licence
-
-[MIT](LICENSE) © 2026 Bruno Ferreira-Saraiva, Zuil Pirola, Fabio Lopes
