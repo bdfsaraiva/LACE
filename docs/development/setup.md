@@ -15,15 +15,33 @@
 ```bash
 cd annotation-backend
 python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
+```
+
+=== "Linux / macOS"
+    ```bash
+    source .venv/bin/activate
+    ```
+
+=== "Windows"
+    ```bash
+    .venv\Scripts\activate
+    ```
+
+```bash
 pip install -r requirements.txt
 ```
 
 Copy the environment file and edit as needed:
 
-```bash
-cp ../.env.example ../.env
-```
+=== "Linux / macOS"
+    ```bash
+    cp ../.env.example ../.env
+    ```
+
+=== "Windows"
+    ```bash
+    copy .env.example .env
+    ```
 
 Run the development server (hot-reload enabled):
 
@@ -52,10 +70,17 @@ The dev server runs at `http://localhost:3721` and proxies `/api/*` requests to 
 
 ## Full Stack with Docker (recommended)
 
-```bash
-cp .env.example .env   # edit credentials
-docker compose up -d --build
-```
+=== "Linux / macOS"
+    ```bash
+    cp .env.example .env
+    docker compose up -d --build
+    ```
+
+=== "Windows"
+    ```bash
+    copy .env.example .env
+    docker compose up -d --build
+    ```
 
 | Service | URL |
 |---|---|

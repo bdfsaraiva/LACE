@@ -1,5 +1,9 @@
 # LACE
 
+[![Backend Tests](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml)
+[![Frontend Build](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/bdfsaraiva/LACE/blob/main/LICENSE)
+
 **LACE** (*Labelling Adjacency and Conversation Entanglement*) is a full-stack web application for managing multi-annotator projects focused on conversational analysis.
 
 It supports two annotation modes:
@@ -8,6 +12,8 @@ It supports two annotation modes:
 - **Adjacency Pairs** — draw directed, typed links between turns
 
 Designed for computational linguistics research requiring rigorous inter-annotator agreement (IAA) measurement.
+
+![Admin Dashboard](screenshots/admin_dashboard.png)
 
 ---
 
@@ -33,7 +39,7 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 
 ```bash
 git clone https://github.com/bdfsaraiva/LACE.git
-cd lace
+cd LACE
 cp .env.example .env   # edit FIRST_ADMIN_USERNAME / FIRST_ADMIN_PASSWORD
 docker compose up -d --build
 ```
@@ -50,8 +56,10 @@ The first admin account is created automatically from the `FIRST_ADMIN_USERNAME`
 
 ## Further Reading
 
+- [Admin Walkthrough](user-guide/admin.md) — create a project, import a corpus, assign annotators
+- [Annotator Walkthrough](user-guide/annotator.md) — annotate a chat room and mark it complete
+- [Exporting Results](user-guide/export.md) — download annotations and IAA scores
 - [REST API](reference/api.md) — endpoint reference
 - [Data Format](reference/data-format.md) — CSV input and export formats
 - [Configuration](reference/configuration.md) — all environment variables
 - [Architecture](development/architecture.md) — system design and database schema
-- [Development Setup](development/setup.md) — run LACE locally without Docker

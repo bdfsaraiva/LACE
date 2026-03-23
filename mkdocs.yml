@@ -23,14 +23,21 @@ theme:
         name: Switch to light mode
   features:
     - navigation.tabs
+    - navigation.sections
     - navigation.instant
+    - navigation.tracking
     - navigation.top
+    - toc.follow
     - search.highlight
     - search.suggest
     - content.code.copy
 
 nav:
   - Home: index.md
+  - User Guide:
+    - Admin Walkthrough: user-guide/admin.md
+    - Annotator Walkthrough: user-guide/annotator.md
+    - Exporting Results: user-guide/export.md
   - Reference:
     - REST API: reference/api.md
     - Data Format: reference/data-format.md
