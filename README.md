@@ -3,6 +3,7 @@
 [![Backend Tests](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml)
 [![Frontend Build](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml)
 [![Docker Build](https://github.com/bdfsaraiva/LACE/actions/workflows/docker-build.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/docker-build.yml)
+[![codecov](https://codecov.io/gh/bdfsaraiva/LACE/branch/main/graph/badge.svg)](https://codecov.io/gh/bdfsaraiva/LACE)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **LACE** (*Labelling Adjacency and Conversation Entanglement*) is a full-stack web application for managing multi-annotator projects focused on:
