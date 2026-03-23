@@ -2,7 +2,6 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "LACE: Labelling Adjacency and Conversation Entanglement"
 version: "0.2.0"
-date-released: "2026-03-12"
 license: MIT
 
 authors:
