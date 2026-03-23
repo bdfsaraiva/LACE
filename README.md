@@ -1,5 +1,8 @@
 # LACE — Labelling Adjacency and Conversation Entanglement
 
+[![Backend Tests](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/backend-tests.yml)
+[![Frontend Build](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/frontend-build.yml)
+[![Docker Build](https://github.com/bdfsaraiva/LACE/actions/workflows/docker-build.yml/badge.svg)](https://github.com/bdfsaraiva/LACE/actions/workflows/docker-build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **LACE** (*Labelling Adjacency and Conversation Entanglement*) is a full-stack web application for managing multi-annotator projects focused on:
@@ -161,5 +164,4 @@ If you use LACE in your research, please use the metadata in [`CITATION.cff`](CI
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-- [Report a bug](../../issues/new?template=bug_report.md)
-- [Request a feature](../../issues/new?template=feature_request.md)
+
