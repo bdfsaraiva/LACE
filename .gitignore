@@ -74,6 +74,7 @@ docker-compose.override.yml
 # Project specific
 data/
 uploads/
+conversion_tools/config.yaml
 *.csv
 !docs/sample_chat_room.csv
 !requirements.txt
