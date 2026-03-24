@@ -73,11 +73,23 @@
 .status-banner.status-complete {
     border-color: #28a745;
     background-color: #d4edda;
+    color: #155724;
+}
+
+.status-banner.status-complete .status-content h2,
+.status-banner.status-complete .status-content p {
+    color: #155724;
 }
 
 .status-banner.status-partial {
     border-color: #ffc107;
     background-color: #fff3cd;
+    color: #664d03;
+}
+
+.status-banner.status-partial .status-content h2,
+.status-banner.status-partial .status-content p {
+    color: #664d03;
 }
 
 .status-banner.status-insufficient {
