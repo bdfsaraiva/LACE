@@ -26,7 +26,7 @@ The diagram below shows the application map — screens, user roles, and navigat
 
 The SPA is compiled to static assets and served by Nginx (Docker) or `vite preview` (development). Two workspaces are provided:
 
-- **Admin Dashboard** — project creation, user management, CSV import with row-level preview, JSON/ZIP export, IAA pairwise matrix viewer.
+- **Admin Dashboard** — project creation, user management, CSV import with row-level preview, JSON/ZIP export, IAA pairwise matrix viewer, per-turn annotator-status overlay in the room view (thread assignments for disentanglement; read/unread state for adjacency pairs).
 - **Annotation Interface** — chat-style view for disentanglement (thread colour assignment) or adjacency pair drawing (drag/right-click directed links).
 
 Authentication state lives in a React context: the access token is stored in memory; the `httpOnly` refresh-token cookie is used to obtain new tokens silently. Role-based route guards block annotators from admin endpoints.
@@ -43,12 +43,13 @@ Authentication state lives in a React context: the access token is stored in mem
 | Password hashing | bcrypt via passlib |
 | Numerical computation | scipy, numpy |
 
-The API under `/api/v1/` is split into four routers:
+The API under `/api/v1/` is split into five routers:
 
 - **Auth** — login, logout, token refresh, rate limiting.
-- **Admin** — CRUD for users and projects; CSV parsing and bulk import; JSON/ZIP export.
+- **Admin** — CRUD for users and projects; CSV parsing and bulk import; JSON/ZIP export; per-turn annotator status for admin room view.
+- **Projects** — annotator-facing room listing, per-turn read-status sync for adjacency-pair rooms.
 - **Annotation** — read/write for disentanglement threads and adjacency pairs; room completion.
-- **IAA** — on-demand pairwise F1 and Cohen's κ using the Hungarian algorithm.
+- **IAA** — on-demand pairwise agreement computation (Hungarian F1 for disentanglement; LinkF1 × TypeAcc with configurable α for adjacency pairs).
 
 ### Data Layer
 
@@ -61,27 +62,46 @@ LACE defaults to **SQLite** for zero-configuration local use and supports **Post
 | Table | Purpose |
 |---|---|
 | `users` | Credentials, hashed passwords, role (`admin` / `annotator`) |
-| `projects` | Project metadata, annotation type (`disentanglement` / `adjacency`) |
+| `projects` | Project metadata, annotation type, and IAA α weight |
 | `project_assignments` | Many-to-many join between users and projects |
 | `chat_rooms` | Individual conversation units within a project |
 | `chat_messages` | Ordered turns within a chat room (author, text, reply link) |
 | `disentanglement_annotation` | Maps each message to a thread ID per annotator |
 | `adj_pairs_annotation` | Directed typed edge between two messages per annotator |
 | `chat_room_completions` | Tracks which annotator has marked which room as complete |
+| `message_read_status` | Per-turn read/unread state per annotator for adjacency-pair rooms |
 
 ---
 
-## IAA — Hungarian Algorithm
+## IAA — Metrics
 
-Inter-annotator agreement for disentanglement is non-trivial: two annotators may identify the same threads but assign them arbitrary different IDs. LACE resolves this via **optimal thread alignment**:
+### Disentanglement — One-to-One (o2o) Agreement
 
-1. For each annotator pair *(A, B)* on a room, collect all thread labels assigned by each.
+Inter-annotator agreement for disentanglement uses the **one-to-one (o2o) agreement** framework: two annotators may identify the same threads but assign them arbitrary different IDs, so thread labels must be optimally aligned before any comparison.
+
+LACE implements o2o agreement as follows:
+
+1. For each annotator pair *(A, B)* on a room, collect all thread sets from each.
 2. Build a cost matrix *C* where *C[i][j]* = 1 − F1(thread *i* of A, thread *j* of B).
 3. Run `scipy.optimize.linear_sum_assignment` on *C* to find the bijective mapping maximising total F1.
 4. Compute macro-average F1 across matched thread pairs as the room-level score.
 5. Aggregate room scores into a project-level pairwise matrix.
 
-Cohen's κ is computed at the message level (using the aligned thread label as the nominal category) to provide a chance-corrected agreement measure.
+> **Note — variant vs. Elsner & Charniak (2010).** The classic o2o formulation used per-message accuracy as the base metric inside the cost matrix. LACE uses per-thread F1 instead, which is a more modern and more informative variant: it rewards partial overlap between matched thread pairs rather than requiring exact message-level agreement.
+
+### Adjacency Pairs — Combined IAA (LinkF1 × TypeAcc)
+
+For adjacency-pair projects the metric combines structural agreement (whether the same links exist) with label agreement (whether the same relation type was chosen):
+
+```
+IAA = LinkF1 × (α + (1 − α) × TypeAcc)
+```
+
+- **LinkF1** — F1 score over the set of directed edges, ignoring relation type.
+- **TypeAcc** — proportion of agreed edges where both annotators chose the same relation type.
+- **α** — configurable weight (0–1, default 0.8) stored per project; higher values down-weight type disagreements.
+
+The three sub-scores (LinkF1, TypeAcc, Combined) are displayed independently in the IAA matrix viewer, and α can be adjusted and re-saved from the analysis page without re-running annotation.
 
 ---
 

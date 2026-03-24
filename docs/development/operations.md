@@ -36,10 +36,22 @@ docker compose logs -f frontend
 
 ### Migrations
 
-Migrations run automatically at container start. To run them manually:
+Schema changes are managed exclusively via Alembic. Migrations run automatically at container start. To run them manually:
 
 ```bash
 cd annotation-backend
+alembic upgrade head
+```
+
+!!! important
+    `Base.metadata.create_all()` is **not** called at startup. All schema changes must be expressed as Alembic migration files under `alembic/versions/`.
+
+### Stamping an existing database
+
+If you have a database that was created outside of Alembic (e.g. from an older `create_all` deployment), stamp it at the correct revision before running migrations:
+
+```bash
+alembic stamp <revision_id>
 alembic upgrade head
 ```
 

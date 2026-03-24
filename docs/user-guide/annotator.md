@@ -59,6 +59,10 @@ Turns are displayed chronologically with colour-coded SVG arcs overlaid for each
 
 - Click the arc and confirm removal in the dialog.
 
+**Marking turns as read:**
+
+Each turn has a **read/unread toggle**. Mark a turn as read once you have reviewed it and decided whether links need to be created. You can also use **Mark all as read** to bulk-mark all turns at once. Read status is saved to the server and is visible to the admin in the room view.
+
 !!! note
     If the corpus CSV included a `reply_to_turn` column, suggested links are shown as dashed arcs. Confirm or dismiss each suggestion as you work through the room.
 

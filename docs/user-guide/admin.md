@@ -58,16 +58,38 @@ Only assigned annotators can see and annotate the rooms in this project. Annotat
 
 The project view shows each chat room alongside a completion indicator per annotator. A room is marked complete when an annotator explicitly clicks **Mark as Complete** in the annotation interface.
 
+The **Status** column in the chat-rooms table shows per-room progress (Completed / Partial / Insufficient data), together with how many annotators have finished and the average pairwise agreement at a glance.
+
 ---
 
-## 6. Inter-Annotator Agreement
+## 6. Inspect Per-Turn Annotator Status
+
+Click any room name in the project view to open the **Admin Room View**, which overlays annotator activity on every message turn:
+
+- **Disentanglement projects** — each turn shows which annotators have assigned it to a thread and what thread ID they chose.
+- **Adjacency-pair projects** — each turn shows which annotators have marked it as read (green badge) and which have not yet reviewed it.
+
+This allows targeted feedback to annotators without needing to export data first.
+
+---
+
+## 7. Inter-Annotator Agreement
 
 Once at least two annotators have annotated the same rooms, you can compute pairwise agreement:
 
-1. Open the project and go to the **IAA** tab.
-2. Click **Compute IAA**.
-3. A pairwise matrix is displayed showing F1 (disentanglement) or Cohen's κ (adjacency pairs) for each annotator pair and room.
+1. Open the project and click the **IAA** (chart) icon next to a room.
+2. A pairwise matrix is displayed.
+   - **Disentanglement** — one-to-one (o2o) agreement: Hungarian-aligned macro-averaged F1 per thread pair.
+   - **Adjacency pairs** — Combined IAA = LinkF1 × (α + (1 − α) × TypeAcc), where α weights the importance of relation-type agreement. Use the **Combined / Link F1 / Type Accuracy** toggle to inspect each sub-score independently.
 
 ![IAA Analysis](../screenshots/iaa_analysis.png)
+
+### Adjusting α (adjacency-pair projects only)
+
+The α weight (default **0.8**) is saved per project and affects the Combined IAA score.
+
+1. On the IAA analysis page, find the **α parameter** editor.
+2. Enter a value between 0.0 and 1.0 and click **Save α**.
+3. The matrix recalculates immediately using the new weight.
 
 Cells with low agreement are highlighted for targeted review.

@@ -95,6 +95,15 @@ Annotation endpoints are available to any authenticated user assigned to the pro
 | `POST` | `/api/v1/annotations/rooms/{room_id}/pairs` | Create a new adjacency pair |
 | `DELETE` | `/api/v1/annotations/rooms/{room_id}/pairs/{pair_id}` | Delete an adjacency pair |
 
+### Per-Turn Read Status (Adjacency Pairs)
+
+Tracks which turns an annotator has reviewed. Stored server-side per annotator per project.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/projects/{project_id}/chat-rooms/{room_id}/read-status` | Get read/unread state for all turns in a room |
+| `PUT` | `/api/v1/projects/{project_id}/chat-rooms/{room_id}/read-status` | Batch-update read/unread state for one or more turns |
+
 ### Room Completion
 
 | Method | Endpoint | Description |
@@ -108,9 +117,12 @@ Annotation endpoints are available to any authenticated user assigned to the pro
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/admin/projects/{project_id}/iaa` | Compute pairwise IAA matrix for all annotators in a project |
+| `GET` | `/api/v1/admin/projects/{project_id}/iaa` | Compute pairwise IAA matrix for all annotators |
+| `GET` | `/api/v1/admin/chat-rooms/{room_id}/read-status-summary` | Per-turn read-status summary across all annotators (admin only) |
 
-**Response** — pairwise matrix with F1 and Cohen's κ per annotator pair and room.
+**IAA response** — pairwise matrix per annotator pair. For disentanglement: macro-averaged F1 (Hungarian). For adjacency pairs: LinkF1, TypeAcc, and Combined IAA = LinkF1 × (α + (1 − α) × TypeAcc), where α is the project-level weight saved via `PUT /api/v1/admin/projects/{project_id}`.
+
+The IAA α weight can be updated by sending `{ "iaa_alpha": 0.8 }` to `PUT /api/v1/admin/projects/{project_id}`.
 
 ---
 
