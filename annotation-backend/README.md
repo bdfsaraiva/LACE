@@ -89,6 +89,37 @@ Adjacency pairs:
 - DELETE /projects/{project_id}/chat-rooms/{room_id}/adjacency-pairs/{pair_id}
 - POST /projects/{project_id}/chat-rooms/{room_id}/adjacency-pairs/import
 
+### Adjacency pairs import (`/adjacency-pairs/import`)
+
+Accepts a CSV file (UTF-8) with three columns: `turnA, turnB, relation_type`. Query parameter `mode` controls conflict handling:
+
+- `merge` (default) — keeps existing annotations and adds new ones (existing pairs are updated in place)
+- `replace` — deletes all existing annotations for the annotator in this room before importing
+
+**Validation rules — a line is skipped when:**
+- fewer than 3 columns
+- any required field is empty
+- `relation_type` is not in the project's configured relation types
+- `turnA` or `turnB` turn ID is not found in the chat room
+- `turnA == turnB` (self-link)
+- the pair `(turnA, turnB)` appears more than once in the same file (duplicate within the upload)
+
+**Response:**
+```json
+{
+  "message": "N relations imported.",
+  "imported_count": 12,
+  "skipped_count": 3,
+  "errors": [
+    "Line 4: invalid relation type 'AP Unknown'",
+    "Line 7: cannot link a turn to itself",
+    "Line 9: duplicate pair in file, skipped"
+  ]
+}
+```
+
+The UI displays a summary popup after import showing the imported and skipped counts plus the full list of skipped lines.
+
 ## Data import format (CSV)
 Required columns:
 - turn_id
