@@ -1367,15 +1367,15 @@ def _calculate_adj_pairs_iaa(
     """
     Calculate the adjacency-pairs IAA between two annotators.
 
-    Formula: ``combined_iaa = link_f1 × (α + (1 − α) × type_accuracy)``
+    Formula: ``combined_iaa = α × link_f1 + (1 − α) × type_accuracy``
 
     - **Link F1** measures how much the sets of directed links (ignoring
       relation type) overlap.  It is the harmonic mean of precision and
       recall, which simplifies to ``2 × |agreed| / (|A| + |B|)``.
     - **Type accuracy** is the fraction of agreed links where both annotators
       chose the same relation type.
-    - **alpha** weights the contribution of type accuracy (α=1 means only
-      links matter; α=0 means type accuracy is the only factor).
+    - **alpha** weights the contribution of each metric (α=1 → combined = LinkF1;
+      α=0 → combined = TypeAcc).
 
     Each pair is a ``(from_message_id, to_message_id, relation_type)`` tuple.
 
@@ -1404,7 +1404,7 @@ def _calculate_adj_pairs_iaa(
         matching = sum(1 for link in agreed_links if type_a[link] == type_b[link])
         type_acc = matching / agreed_count
 
-    combined_iaa = link_f1 * (alpha + (1 - alpha) * type_acc)
+    combined_iaa = alpha * link_f1 + (1 - alpha) * type_acc
 
     return {
         "link_f1": link_f1,
@@ -1726,7 +1726,78 @@ def _get_adj_pairs_iaa(
     )
 
     if completed_count < 2:
-        return not_enough
+        # Calcular matriz provisional se >= 2 anotadores já leram pelo menos 1 turno
+        room_msg_subq = db.query(models.ChatMessage.id).filter(
+            models.ChatMessage.chat_room_id == chat_room_id
+        )
+        assigned_ids = {u.id for u in assigned_users}
+        annotators_with_reads = {
+            row.annotator_id
+            for row in db.query(models.MessageReadStatus.annotator_id)
+            .filter(
+                models.MessageReadStatus.message_id.in_(room_msg_subq),
+                models.MessageReadStatus.annotator_id.in_(assigned_ids),
+                models.MessageReadStatus.is_read == True,
+            )
+            .distinct()
+            .all()
+        }
+        if len(annotators_with_reads) < 2:
+            return not_enough
+
+        # Usar os pares actuais de todos os anotadores com leituras para a matriz provisional
+        provisional_pairs_query = (
+            db.query(
+                models.AdjacencyPair.annotator_id,
+                models.User.username,
+                models.AdjacencyPair.from_message_id,
+                models.AdjacencyPair.to_message_id,
+                models.AdjacencyPair.relation_type,
+            )
+            .join(models.ChatMessage, models.AdjacencyPair.from_message_id == models.ChatMessage.id)
+            .join(models.User, models.AdjacencyPair.annotator_id == models.User.id)
+            .filter(
+                models.ChatMessage.chat_room_id == chat_room_id,
+                models.AdjacencyPair.annotator_id.in_(annotators_with_reads),
+            )
+            .all()
+        )
+        prov_pairs: dict = {}
+        prov_usernames: dict = {}
+        for ann_id, username, from_id, to_id, rel_type in provisional_pairs_query:
+            prov_pairs.setdefault(ann_id, []).append((from_id, to_id, rel_type))
+            prov_usernames[ann_id] = username
+        for uid in annotators_with_reads:
+            prov_pairs.setdefault(uid, [])
+            prov_usernames.setdefault(uid, assigned_user_map.get(uid, str(uid)))
+
+        pairwise_adj_iaa = []
+        for id1, id2 in combinations(list(annotators_with_reads), 2):
+            result = _calculate_adj_pairs_iaa(prov_pairs[id1], prov_pairs[id2], alpha)
+            pairwise_adj_iaa.append(schemas.PairwiseAdjIAA(
+                annotator_1_id=id1,
+                annotator_2_id=id2,
+                annotator_1_username=prov_usernames[id1],
+                annotator_2_username=prov_usernames[id2],
+                link_f1=result["link_f1"],
+                type_accuracy=result["type_accuracy"],
+                agreed_links_count=result["agreed_links_count"],
+                combined_iaa=result["combined_iaa"],
+                iaa_alpha=alpha,
+            ))
+        return schemas.ChatRoomIAA(
+            chat_room_id=chat_room_id,
+            chat_room_name=chat_room.name,
+            message_count=message_count,
+            annotation_type="adjacency_pairs",
+            analysis_status="InProgress",
+            total_annotators_assigned=total_assigned,
+            completed_annotators=completed_annotators,
+            pending_annotators=pending_annotators,
+            pending_turns_count=pending_turns_count,
+            iaa_alpha=alpha,
+            pairwise_adj_iaa=pairwise_adj_iaa,
+        )
 
     # Load all pairs for this room belonging to completed annotators
     pairs_query = (

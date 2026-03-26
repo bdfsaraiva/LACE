@@ -8,7 +8,7 @@
  *
  * - **Adjacency pairs**: renders a multi-mode matrix with three switchable
  *   views (`'combined'`, `'link_f1'`, `'type_accuracy'`).  The `alpha` weight
- *   in the `LinkF1 × (α + (1−α) × TypeAcc)` combined-IAA formula is editable
+ *   in the `α × LinkF1 + (1−α) × TypeAcc` combined-IAA formula is editable
  *   inline; saving persists it to the project record via `updateProject` and
  *   re-fetches the IAA to show the updated matrix.
  *
@@ -33,7 +33,7 @@ const VIEW_LABELS = {
 
 /** Human-readable formula descriptions for each view mode. */
 const VIEW_DESCRIPTIONS = {
-    combined:      (alpha) => `LinkF1 × (α + (1−α) × TypeAcc)  |  α = ${alpha}`,
+    combined:      (alpha) => `α × LinkF1 + (1−α) × TypeAcc  |  α = ${alpha}`,
     link_f1:       () => '2 × |agreed links| / (|links A| + |links B|) — ignores relation type',
     type_accuracy: () => 'Proportion of agreed links where both annotators chose the same relation type',
 };
@@ -135,6 +135,7 @@ const AnnotationAnalysisPage = () => {
         const statusMap = {
             Complete:      { class: 'status-complete',     title: 'Analysis Complete',     description: 'All assigned annotators have completed their work' },
             Partial:       { class: 'status-partial',      title: 'Partial Analysis',      description: 'Some annotators have completed their work, analysis based on completed subset' },
+            InProgress:    { class: 'status-partial',      title: 'Provisional Analysis',  description: 'No annotator has formally completed this room yet — matrix calculated from annotations so far' },
             NotEnoughData: { class: 'status-insufficient', title: 'Insufficient Data',     description: 'Not enough completed annotations for analysis (need at least 2 annotators)' },
             Error:         { class: 'status-error',        title: 'Analysis Error',        description: 'An error occurred while calculating the analysis' },
         };
@@ -201,6 +202,18 @@ const AnnotationAnalysisPage = () => {
     const adjPairsAccuracies = isAdjPairs ? buildAdjPairsAccuracies() : [];
     const hasMatrix = isAdjPairs ? adjPairsAccuracies.length > 0 : iaaData.pairwise_accuracies.length > 0;
 
+    // No estado InProgress os completed_annotators estão vazios; derivar da lista de pares
+    const matrixAnnotators = (() => {
+        if (iaaData.completed_annotators.length > 0) return iaaData.completed_annotators;
+        const seen = new Map();
+        const pairs = isAdjPairs ? iaaData.pairwise_adj_iaa : iaaData.pairwise_accuracies;
+        pairs.forEach(p => {
+            if (!seen.has(p.annotator_1_id)) seen.set(p.annotator_1_id, { id: p.annotator_1_id, username: p.annotator_1_username });
+            if (!seen.has(p.annotator_2_id)) seen.set(p.annotator_2_id, { id: p.annotator_2_id, username: p.annotator_2_username });
+        });
+        return [...seen.values()];
+    })();
+
     return (
         <div className="annotation-analysis-page">
             <header className="page-header">
@@ -246,7 +259,7 @@ const AnnotationAnalysisPage = () => {
                 <div className="status-content">
                     <h2>{statusInfo.title}</h2>
                     <p>{statusInfo.description}</p>
-                    {(iaaData.analysis_status === 'Partial' || iaaData.analysis_status === 'NotEnoughData') && (
+                    {['Partial', 'InProgress', 'NotEnoughData'].includes(iaaData.analysis_status) && (
                         <div className="annotator-status">
                             <div className="annotator-group">
                                 <strong>Concluídos ({iaaData.completed_annotators.length}):</strong>
@@ -295,10 +308,10 @@ const AnnotationAnalysisPage = () => {
                     <form onSubmit={handleSaveAlpha} className="alpha-editor-form">
                         <div className="alpha-editor-row">
                             <label htmlFor="alpha-input">
-                                <strong>α (link weight)</strong>
+                                <strong>α (Link F1 weight)</strong>
                                 <span className="alpha-hint">
                                     Controls how much link structure vs relation type agreement matters.
-                                    Combined IAA = LinkF1 × (α + (1−α) × TypeAcc)
+                                    Combined IAA = α × LinkF1 + (1−α) × TypeAcc
                                 </span>
                             </label>
                             <div className="alpha-controls">
@@ -342,7 +355,7 @@ const AnnotationAnalysisPage = () => {
                     </div>
                     <IAAMatrix
                         pairwiseAccuracies={isAdjPairs ? adjPairsAccuracies : iaaData.pairwise_accuracies}
-                        annotators={iaaData.completed_annotators}
+                        annotators={matrixAnnotators}
                         isAdjPairs={isAdjPairs}
                         viewMode={viewMode}
                     />

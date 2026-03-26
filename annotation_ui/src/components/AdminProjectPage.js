@@ -132,7 +132,7 @@ const AdminProjectPage = () => {
                         completedAnnotators: iaaData.completed_annotators.length,
                         totalAnnotators: iaaData.total_annotators_assigned,
                         averageAgreement: calculateAverageAdjIAA(iaaData.pairwise_adj_iaa),
-                        canAnalyze: iaaData.pairwise_adj_iaa.length > 0,
+                        canAnalyze: iaaData.total_annotators_assigned > 0,
                     };
                 } else {
                     analytics[room.id] = {
@@ -140,7 +140,7 @@ const AdminProjectPage = () => {
                         completedAnnotators: iaaData.completed_annotators.length,
                         totalAnnotators: iaaData.total_annotators_assigned,
                         averageAgreement: calculateAverageAgreement(iaaData.pairwise_accuracies),
-                        canAnalyze: iaaData.pairwise_accuracies.length > 0,
+                        canAnalyze: iaaData.total_annotators_assigned > 0,
                     };
                 }
             } catch {
@@ -495,6 +495,7 @@ const AdminProjectPage = () => {
             'NotStarted': { class: 'status-unknown', text: 'Not Started' },
             'Complete': { class: 'status-complete', text: 'Annotated' },
             'Partial': { class: 'status-partial', text: 'In Progress' },
+            'InProgress': { class: 'status-partial', text: 'In Progress' },
             'NotEnoughData': { class: 'status-insufficient', text: 'Insufficient Data' },
             'Error': { class: 'status-error', text: 'Error' },
             'N/A': { class: 'status-unknown', text: 'N/A' }
@@ -703,7 +704,7 @@ const AdminProjectPage = () => {
                                                         onClick={() => navigate(`/admin/projects/${project.id}/analysis/${room.id}`)}
                                                         className="action-button analyze-button"
                                                         disabled={!chatRoomAnalytics[room.id]?.canAnalyze}
-                                                        title={!chatRoomAnalytics[room.id]?.canAnalyze ? 'Not enough data for analysis' : 'Analyze annotations'}
+                                                        title={!chatRoomAnalytics[room.id]?.canAnalyze ? 'No annotators assigned to this room' : 'Analyze annotations'}
                                                     >
                                                         Analyze
                                                     </button>
