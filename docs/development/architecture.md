@@ -49,7 +49,7 @@ The API under `/api/v1/` is split into five routers:
 - **Admin** — CRUD for users and projects; CSV parsing and bulk import; JSON/ZIP export; per-turn annotator status for admin room view.
 - **Projects** — annotator-facing room listing, per-turn read-status sync for adjacency-pair rooms.
 - **Annotation** — read/write for disentanglement threads and adjacency pairs; room completion.
-- **IAA** — on-demand pairwise agreement computation (Hungarian F1 for disentanglement; α × LinkF1 + (1−α) × TypeAcc with configurable α for adjacency pairs).
+- **IAA** — on-demand pairwise agreement computation (o2o per-message accuracy via Hungarian alignment for disentanglement; α × LinkF1 + (1−α) × TypeAcc with configurable α for adjacency pairs).
 
 ### Data Layer
 
@@ -79,15 +79,15 @@ LACE defaults to **SQLite** for zero-configuration local use and supports **Post
 
 Inter-annotator agreement for disentanglement uses the **one-to-one (o2o) agreement** framework: two annotators may identify the same threads but assign them arbitrary different IDs, so thread labels must be optimally aligned before any comparison.
 
-LACE implements o2o agreement as follows:
+LACE implements o2o agreement following Elsner & Charniak (2008):
 
-1. For each annotator pair *(A, B)* on a room, collect all thread sets from each.
-2. Build a cost matrix *C* where *C[i][j]* = 1 − F1(thread *i* of A, thread *j* of B).
-3. Run `scipy.optimize.linear_sum_assignment` on *C* to find the bijective mapping maximising total F1.
-4. Compute macro-average F1 across matched thread pairs as the room-level score.
+1. For each annotator pair *(A, B)* on a room with *N* messages, collect thread sets from each.
+2. Build a co-occurrence matrix *M* where *M[i][j]* = number of messages annotator A put in thread *i* and annotator B put in thread *j*.
+3. Run `scipy.optimize.linear_sum_assignment` on *−M* to find the bijective mapping maximising total co-occurrence.
+4. Compute the room-level score as `sum(matched co-occurrences) / N` — the fraction of messages consistent under the optimal mapping.
 5. Aggregate room scores into a project-level pairwise matrix.
 
-> **Note — variant vs. Elsner & Charniak (2010).** The classic o2o formulation used per-message accuracy as the base metric inside the cost matrix. LACE uses per-thread F1 instead, which is a more modern and more informative variant: it rewards partial overlap between matched thread pairs rather than requiring exact message-level agreement.
+The metric is symmetric: IAA(A, B) = IAA(B, A), because the maximum-weight bipartite matching is invariant to transposing *M*. When annotators use different numbers of threads, unmatched threads contribute zero to the numerator.
 
 ### Adjacency Pairs — Combined IAA (α × LinkF1 + (1−α) × TypeAcc)
 
