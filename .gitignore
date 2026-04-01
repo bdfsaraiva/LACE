@@ -104,3 +104,4 @@ build/
 .output/
 .claude/
 docs/Paper/
+/.omc/

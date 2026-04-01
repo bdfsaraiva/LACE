@@ -11,7 +11,7 @@ It supports two annotation modes:
 - **Chat Disentanglement** — group conversation turns into coherent threads
 - **Adjacency Pairs** — draw directed, typed links between turns
 
-Designed for computational linguistics research requiring rigorous inter-annotator agreement (IAA) measurement.
+Both modes include automatic pairwise inter-annotator agreement (IAA) computation.
 
 ![Admin Dashboard](screenshots/admin_dashboard.png)
 
