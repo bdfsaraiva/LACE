@@ -122,11 +122,25 @@ def upsert_question_analysis(
 
     Idempotent under ``(message_id, annotator_id)``: a second call with a new
     payload overwrites the existing row's fields in place.
+
+    Raises:
+        HTTPException: 404 if the project does not exist, the room does not
+            belong to the project, or the message is not in the room.
+        HTTPException: 400 if the project is not in question-analysis mode.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     _ensure_project_mode(project)
+
+    # verify_project_access only covers project_id; without this check an
+    # annotator could write into a room of a project they are not assigned to.
+    chat_room = db.query(ChatRoom).filter(
+        ChatRoom.id == room_id,
+        ChatRoom.project_id == project_id,
+    ).first()
+    if not chat_room:
+        raise HTTPException(status_code=404, detail="Chat room not found in this project")
 
     message = db.query(ChatMessage).filter(
         ChatMessage.id == payload.message_id,
