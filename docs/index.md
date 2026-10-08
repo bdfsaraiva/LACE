@@ -46,9 +46,9 @@ docker compose up -d --build
 
 | Service | URL |
 |---|---|
-| Frontend | http://localhost:3721 |
-| Backend API | http://localhost:8000 |
-| Swagger docs | http://localhost:8000/docs |
+| Frontend | http://localhost |
+| Backend API | http://localhost/api |
+| Swagger docs | http://localhost/api/docs |
 
 The first admin account is created automatically from the `FIRST_ADMIN_USERNAME` and `FIRST_ADMIN_PASSWORD` values in `.env`.
 

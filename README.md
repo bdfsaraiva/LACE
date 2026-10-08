@@ -59,9 +59,11 @@ docker compose up -d --build
 
 | Service | URL |
 |---|---|
-| Frontend | http://localhost:3721 |
-| Backend API | http://localhost:8000 |
-| Swagger docs | http://localhost:8000/docs |
+| Frontend | http://localhost |
+| Backend API | http://localhost/api |
+| Swagger docs | http://localhost/api/docs |
+
+nginx serves the frontend on port 80 and proxies `/api/*` to the backend, which is not published directly.
 
 ---
 
@@ -98,7 +100,7 @@ Copy `.env.example` to `.env` and adjust:
 | `FIRST_ADMIN_USERNAME` | Auto-created admin username | `admin` |
 | `FIRST_ADMIN_PASSWORD` | Auto-created admin password | — |
 | `CORS_ORIGINS` | JSON list of allowed origins | `["http://localhost:3721"]` |
-| `API_URL` | Backend URL seen by the frontend | `http://localhost:8000` |
+| `API_URL` | Backend URL seen by the frontend (build time) | `/api` in the Docker image; `http://localhost:8000` with `npm start` |
 | `MAX_UPLOAD_MB` | Maximum CSV upload size | `10` |
 
 ---

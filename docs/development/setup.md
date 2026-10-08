@@ -64,7 +64,7 @@ npm install
 npm start
 ```
 
-The dev server runs at `http://localhost:3721` and proxies `/api/*` requests to `http://localhost:8000`.
+The dev server runs at `http://localhost:3721` and calls the backend directly at `API_URL` (default `http://localhost:8000`).
 
 ---
 
@@ -84,9 +84,11 @@ The dev server runs at `http://localhost:3721` and proxies `/api/*` requests to 
 
 | Service | URL |
 |---|---|
-| Frontend | http://localhost:3721 |
-| Backend API | http://localhost:8000 |
-| Swagger docs | http://localhost:8000/docs |
+| Frontend | http://localhost |
+| Backend API | http://localhost/api |
+| Swagger docs | http://localhost/api/docs |
+
+nginx serves the frontend on port 80 and proxies `/api/*` to the backend (prefix stripped); the backend port is not published.
 
 Rebuild after code changes:
 
