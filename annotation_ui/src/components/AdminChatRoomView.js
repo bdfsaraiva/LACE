@@ -17,13 +17,22 @@
  *   bulk request and shows the thread label(s) assigned by each annotator
  *   per turn, plus a list of annotators who have not yet annotated.
  *
+ * - **agreement_analysis**: same layout as disentanglement, showing each
+ *   annotator's decision (form · marker check · cited span) instead of a
+ *   thread label; the import panels are hidden.
+ *
  * On fatal fetch error, navigates back to the admin project page and passes
  * the error message as route state so the project page can surface it.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projects as projectsApi, annotations as annotationsApi } from '../utils/api';
+import { projects as projectsApi, annotations as annotationsApi, agreementAnalysis as agreementAnalysisApi } from '../utils/api';
 import './AdminChatRoomView.css';
+
+/** Short summary of an agreement-analysis decision, e.g. `agreement-form · agreement_verb · "I agree"`. */
+const describeAgreementDecision = (ann) => (ann.form === 'none'
+    ? 'not marked'
+    : [ann.form, ann.marker_check, ann.marker_span && `"${ann.marker_span}"`].filter(Boolean).join(' · '));
 
 /**
  * Admin chat-room detail page with annotation coverage overview and bulk
@@ -93,7 +102,11 @@ const AdminChatRoomView = () => {
                 }
             } else {
                 try {
-                    const allAnnotations = await annotationsApi.getChatRoomAnnotations(projectId, roomId);
+                    // Agreement-analysis rows carry the same message_id / annotator_username
+                    // fields, so they are grouped and counted like disentanglement annotations.
+                    const allAnnotations = projectData.annotation_type === 'agreement_analysis'
+                        ? await agreementAnalysisApi.getChatRoomAnnotations(projectId, roomId)
+                        : await annotationsApi.getChatRoomAnnotations(projectId, roomId);
                     allAnnotations.forEach((ann) => {
                         if (!annotationsData[ann.message_id]) {
                             annotationsData[ann.message_id] = [];
@@ -340,7 +353,7 @@ const AdminChatRoomView = () => {
                 </div>
             </div>
 
-            {project?.annotation_type !== "adjacency_pairs" && (
+            {!['adjacency_pairs', 'agreement_analysis'].includes(project?.annotation_type) && (
                 <div className="import-panel">
                     <h3>Import Annotations (CSV)</h3>
                     <div className="import-row">
@@ -396,7 +409,7 @@ const AdminChatRoomView = () => {
                 </div>
             )}
 
-            {project?.annotation_type !== "adjacency_pairs" && (
+            {!['adjacency_pairs', 'agreement_analysis'].includes(project?.annotation_type) && (
                 <div className="import-panel">
                     <h3>Batch Import (JSON)</h3>
                     <div className="import-row">
@@ -551,7 +564,11 @@ const AdminChatRoomView = () => {
                                         <div className="annotated-by">
                                             {annotatedUsers.map(username => {
                                                 const userAnnotations = annotations.filter(ann => ann.annotator_username === username);
-                                                const threadIds = userAnnotations.map(ann => ann.thread_id).join(', ');
+                                                const threadIds = userAnnotations
+                                                    .map(ann => (project?.annotation_type === 'agreement_analysis'
+                                                        ? describeAgreementDecision(ann)
+                                                        : ann.thread_id))
+                                                    .join(', ');
                                                 return (
                                                     <div key={username} className="annotator-item">
                                                         <span className="annotator-name" title={username}>

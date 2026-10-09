@@ -37,6 +37,7 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 | **Multi-annotator** | Assign multiple annotators per project; track individual progress |
 | **Chat Disentanglement** | Assign turns to threads using text labels |
 | **Adjacency Pairs** | Draw directed relation links with typed labels via drag or right-click |
+| **Agreement Analysis** | Mark agreement/disagreement-form turns with the triggering marker, cited span, clarity and multi-form flag; "Finish room" saves the rest as not marked |
 | **CSV Import** | Import chat rooms from CSV with preview and validation |
 | **JSON/ZIP Export** | Export annotations per room or per annotator |
 | **IAA Analysis** | Pairwise inter-annotator agreement using the Hungarian algorithm |

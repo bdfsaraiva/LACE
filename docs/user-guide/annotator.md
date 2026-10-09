@@ -76,8 +76,31 @@ Each turn has a **read/unread toggle**. Mark a turn as read once you have review
 
 ---
 
-## 5. Mark as Complete
+## 5. Agreement Analysis Mode
 
-When you have finished annotating all turns in a room, click **Mark as Complete** at the top of the interface.
+Each turn is a collapsible card; click it (or **Expand all**) to open its panel. Open **Rubric** for the
+quick reference ([full rubric](../agreement-analysis-rubric.md)). Judge each turn from its own wording only.
+
+**Marking a turn:**
+
+1. Choose **Agreement-form** or **Disagreement-form**.
+2. Pick the **triggering marker** — one rubric check of that polarity (examples are shown next to each).
+3. Cite the span: type it in **Cited span**, or select the words in the turn and click **Use selected text**.
+4. Tick **Borderline** if the form itself is partial or ambiguous, and **Also question-form** if the turn
+   also carries question-form.
+
+Every choice is saved immediately; the cited span is saved when you leave the field. A marked turn
+without its check or cited span shows **Incomplete**.
+
+**Finishing the room:** you only need to mark the agreement/disagreement-form turns. Click **Finish room**
+to save every turn left without a decision as *Not marked* and mark the room as finished (complete any
+*Incomplete* turns first). **Reopen** lets you change your decisions afterwards; use **Clear** on a turn to
+remove its decision.
+
+---
+
+## 6. Mark as Complete
+
+In Disentanglement, Adjacency Pairs and Question Analysis rooms, when you have finished annotating all turns, click **Mark as Complete** at the top of the interface (Agreement Analysis rooms use **Finish room** instead).
 
 This records your completion in the database and signals to the admin that your annotations for this room are ready for IAA computation. You can unmark a room if you need to make further changes.

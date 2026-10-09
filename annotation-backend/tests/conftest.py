@@ -149,6 +149,26 @@ def create_pair(db, from_message_id, to_message_id, annotator_id, project_id, re
     return pair
 
 
+def create_agreement_annotation(
+    db, message_id, annotator_id, project_id, form="none",
+    marker_check=None, marker_span="", borderline=False, multiform=False
+):
+    annotation = models.AgreementAnalysisAnnotation(
+        message_id=message_id,
+        annotator_id=annotator_id,
+        project_id=project_id,
+        form=form,
+        marker_check=marker_check,
+        marker_span=marker_span,
+        borderline=borderline,
+        multiform=multiform,
+    )
+    db.add(annotation)
+    db.commit()
+    db.refresh(annotation)
+    return annotation
+
+
 def auth_headers(client, username, password):
     response = client.post(
         "/auth/token",

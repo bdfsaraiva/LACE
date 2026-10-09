@@ -46,6 +46,42 @@ This format is the same as the import format, so exported files can be re-import
 
 ---
 
+## Agreement Analysis — JSON and CSV
+
+**Trigger:** Open the project → click **Export JSON** or **Export CSV** on a room.
+
+**JSON** — every decision of every annotator, *Not marked* (`none`) included, with export metadata
+(completion status, per-annotator coverage):
+
+```json
+{
+  "turn_id": "6",
+  "turn_text": "I agree, but don't you think culture matters too?",
+  "annotations": [
+    {
+      "annotator_username": "alice",
+      "form": "agreement-form",
+      "marker_check": "agreement_verb",
+      "marker_span": "I agree",
+      "clarity": "clear",
+      "multiform": true,
+      "complete": true
+    }
+  ]
+}
+```
+
+**CSV** — the rubric's record table, one row per **marked** turn, as a ZIP with one file per assigned
+annotator:
+
+```
+turn_id,label,triggering_marker_check,triggering_marker_span,clarity,multi_form
+1,agreement-form,agreement_verb,I completely agree,clear,no
+6,agreement-form,agreement_verb,I agree,clear,yes
+```
+
+---
+
 ## IAA Matrix
 
 The inter-annotator agreement matrix can be viewed in the **IAA** tab of the project and is included in the export package.
@@ -54,5 +90,6 @@ The inter-annotator agreement matrix can be viewed in the **IAA** tab of the pro
 |---|---|---|
 | Per-message accuracy (o2o) | Disentanglement | Fraction of messages consistent under the optimal thread alignment (Hungarian algorithm), following Elsner & Charniak (2008) |
 | α × LinkF1 + (1−α) × TypeAcc | Adjacency pairs | Linear interpolation between structural (LinkF1) and label (TypeAcc) agreement; α=1 → LinkF1, α=0 → TypeAcc; α configurable per project |
+| Combined IAA + Cohen's κ | Agreement analysis | Mean of form, marker-check, clarity and multi-form agreement, with Cohen's κ on the form label shown in the **Pairwise details** table — see the [rubric](../agreement-analysis-rubric.md#inter-annotator-agreement) |
 
 See [Architecture — IAA](../development/architecture.md#iaa--metrics) for the formal definitions.

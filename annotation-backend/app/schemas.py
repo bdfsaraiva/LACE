@@ -10,8 +10,8 @@ Each domain typically has a hierarchy:
 - ``<Model>Create`` — payload accepted on creation endpoints
 - ``<Model>``       — response shape returned to clients
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List, Literal, Union, get_args
 from datetime import datetime
 
 
@@ -298,6 +298,77 @@ class QuestionAnalysisAnnotation(QuestionAnalysisAnnotationBase):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Agreement Analysis Annotation Schemas
+# ---------------------------------------------------------------------------
+
+AgreementMarkerCheck = Literal[
+    "agreement_verb",
+    "correctness_formula",
+    "truth_confirmation_formula",
+    "shared_position_formula",
+]
+"""Rubric §4.A checks that can trigger an ``agreement-form`` label."""
+
+DisagreementMarkerCheck = Literal[
+    "disagreement_verb",
+    "incorrectness_formula",
+    "falsity_formula",
+    "alternative_position_formula",
+]
+"""Rubric §4.B checks that can trigger a ``disagreement-form`` label."""
+
+AGREEMENT_MARKER_CHECKS = get_args(AgreementMarkerCheck)
+DISAGREEMENT_MARKER_CHECKS = get_args(DisagreementMarkerCheck)
+
+
+class AgreementAnalysisAnnotationBase(BaseModel):
+    """Shared fields for agreement-analysis annotation payloads."""
+    message_id: int
+    form: Literal["agreement-form", "disagreement-form", "none"]
+    """Annotator decision; ``none`` means the turn was reviewed and not marked."""
+    marker_check: Optional[Union[AgreementMarkerCheck, DisagreementMarkerCheck]] = None
+    """Rubric check that triggered the label; must match the polarity of ``form``."""
+    marker_span: str = Field(default="", max_length=300)
+    """Token or span cited from the turn as the triggering marker."""
+    borderline: bool = False
+    """Clarity is ``borderline`` rather than ``clear``."""
+    multiform: bool = False
+    """The turn also carries question-form."""
+
+
+class AgreementAnalysisAnnotationCreate(AgreementAnalysisAnnotationBase):
+    """Payload accepted when creating or updating an agreement-analysis annotation."""
+
+    @model_validator(mode="after")
+    def check_marker_matches_form(self) -> "AgreementAnalysisAnnotationCreate":
+        """Reject a marker check from the other polarity (ignored for ``none``, which is cleared)."""
+        allowed = AGREEMENT_MARKER_CHECKS if self.form == "agreement-form" else DISAGREEMENT_MARKER_CHECKS
+        if self.form != "none" and self.marker_check is not None and self.marker_check not in allowed:
+            raise ValueError(f"marker_check '{self.marker_check}' does not apply to form '{self.form}'")
+        return self
+
+
+class AgreementAnalysisAnnotation(AgreementAnalysisAnnotationBase):
+    """Full agreement-analysis annotation representation returned by the API."""
+    id: int
+    annotator_id: int
+    annotator_username: str
+    project_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AgreementAnalysisFinishResult(BaseModel):
+    """Result of finishing a room in agreement-analysis mode."""
+    filled_count: int
+    """Turns without a decision that were saved as ``none``."""
+    is_completed: bool
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +678,34 @@ class PairwiseQuestionAnalysisIAA(BaseModel):
     """Number of messages both annotators annotated, used as the denominator."""
 
 
+class PairwiseAgreementAnalysisIAA(BaseModel):
+    """
+    Agreement-analysis IAA between two annotators, over the turns both have
+    completed.  Percentages are 0–100; components that have no turns to
+    compare are ``None`` and left out of ``combined_iaa``.
+    """
+    annotator_1_id: int
+    annotator_2_id: int
+    annotator_1_username: str
+    annotator_2_username: str
+    form_accuracy: float
+    """Agreement on the form label (agreement-form / disagreement-form / none)."""
+    form_kappa: Optional[float] = None
+    """Cohen's κ on the form label; ``None`` when undefined (expected agreement is 1)."""
+    marker_agreement: Optional[float] = None
+    """Agreement on the marker check, over turns both marked with the same form."""
+    clarity_agreement: Optional[float] = None
+    """Agreement on clarity (clear / borderline), over turns both marked."""
+    multiform_agreement: Optional[float] = None
+    """Agreement on the multi-form flag, over turns both marked."""
+    combined_iaa: float
+    """Mean of the percentage components above that are defined (0–100)."""
+    common_message_count: int
+    """Number of turns both annotators completed."""
+    marked_in_common_count: int
+    """Number of those turns that both annotators marked (form other than ``none``)."""
+
+
 class AnnotatorInfo(BaseModel):
     """Information about an annotator."""
     id: int
@@ -644,7 +743,7 @@ class ChatRoomIAA(BaseModel):
     chat_room_id: int
     chat_room_name: str
     message_count: int
-    annotation_type: str  # "disentanglement", "adjacency_pairs", or "question_analysis"
+    annotation_type: str  # "disentanglement", "adjacency_pairs", "question_analysis" or "agreement_analysis"
 
     # "Complete" = all assigned annotators are done,
     # "Partial"  = some are done,
@@ -668,3 +767,6 @@ class ChatRoomIAA(BaseModel):
 
     # Question analysis mode — one entry per annotator pair
     pairwise_question_analysis_iaa: List[PairwiseQuestionAnalysisIAA] = []
+
+    # Agreement analysis mode — one entry per annotator pair
+    pairwise_agreement_analysis_iaa: List[PairwiseAgreementAnalysisIAA] = []

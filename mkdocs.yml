@@ -38,6 +38,9 @@ nav:
     - Admin Walkthrough: user-guide/admin.md
     - Annotator Walkthrough: user-guide/annotator.md
     - Exporting Results: user-guide/export.md
+  - Annotation Rubrics:
+    - Question-Form Rubric: question-analysis-rubric.md
+    - Agreement/Disagreement-Form Rubric: agreement-analysis-rubric.md
   - Reference:
     - REST API: reference/api.md
     - Data Format: reference/data-format.md

@@ -1310,4 +1310,109 @@ export const questionAnalysis = {
     },
 };
 
+/**
+ * Download an admin agreement-analysis export as a file.
+ *
+ * @param {string} path - API path of the export endpoint.
+ * @param {Object} params - Query parameters.
+ * @param {string} defaultFilename - Used when the response has no filename.
+ */
+const downloadAgreementExport = async (path, params, defaultFilename) => {
+    try {
+        const response = await api.get(path, { params, responseType: 'blob' });
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const match = response.headers['content-disposition']?.match(/filename="?([^"]+)"?/);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', match ? match[1] : defaultFilename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        return true;
+    } catch (error) {
+        if (!error.response) throw new Error('Network error or server is not responding.');
+        // With responseType 'blob' the JSON error body arrives as a Blob.
+        let detail = null;
+        try {
+            detail = JSON.parse(await error.response.data.text()).detail;
+        } catch {
+            detail = null;
+        }
+        throw new Error(detail || 'Failed to export agreement-analysis data.');
+    }
+};
+
+/**
+ * Agreement-analysis (agreement/disagreement-form) endpoint wrappers.
+ *
+ * Each (message, annotator) pair has a single row with ``form``
+ * (``agreement-form`` / ``disagreement-form`` / ``none``), ``marker_check``,
+ * ``marker_span``, ``borderline`` and ``multiform``.  POST is upsert.
+ * @namespace agreementAnalysis
+ */
+export const agreementAnalysis = {
+    /**
+     * List agreement-analysis annotations for a chat room.
+     * Annotators see their own; admins see all.
+     */
+    getChatRoomAnnotations: async (projectId, chatRoomId) => {
+        const response = await api.get(`/projects/${projectId}/chat-rooms/${chatRoomId}/agreement-analysis/`);
+        return response.data;
+    },
+
+    /**
+     * Upsert the current annotator's decision for one turn.
+     * @param {Object} payload - `{message_id, form, marker_check, marker_span, borderline, multiform}`.
+     */
+    upsertAnnotation: async (projectId, chatRoomId, payload) => {
+        const response = await api.post(
+            `/projects/${projectId}/chat-rooms/${chatRoomId}/agreement-analysis/`,
+            payload
+        );
+        return response.data;
+    },
+
+    /**
+     * Delete a decision, leaving the turn undecided.
+     */
+    deleteAnnotation: async (projectId, chatRoomId, annotationId) => {
+        await api.delete(
+            `/projects/${projectId}/chat-rooms/${chatRoomId}/agreement-analysis/${annotationId}`
+        );
+        return true;
+    },
+
+    /**
+     * Finish the room: undecided turns are saved as `none` and the room is
+     * marked as completed.  Rejected (409) while a marked turn is incomplete.
+     * @returns {Promise<{filled_count: number, is_completed: boolean}>}
+     */
+    finishRoom: async (projectId, chatRoomId) => {
+        const response = await api.post(
+            `/projects/${projectId}/chat-rooms/${chatRoomId}/agreement-analysis/finish`
+        );
+        return response.data;
+    },
+
+    /**
+     * Export every decision of a room as a structured JSON file (admin).
+     */
+    exportChatRoomJson: (chatRoomId) => downloadAgreementExport(
+        `/admin/chat-rooms/${chatRoomId}/export-agreement-analysis-json`,
+        {},
+        `agreement_export_${chatRoomId}.json`
+    ),
+
+    /**
+     * Export the rubric's record table (marked turns only) as CSV for one
+     * annotator, or a ZIP with one CSV per annotator when `annotatorId` is null (admin).
+     */
+    exportChatRoomCsv: (chatRoomId, annotatorId = null) => downloadAgreementExport(
+        `/admin/chat-rooms/${chatRoomId}/export-agreement-analysis`,
+        annotatorId ? { annotator_id: annotatorId } : {},
+        `agreement_export_${chatRoomId}.zip`
+    ),
+};
+
 export default api;

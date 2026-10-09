@@ -29,6 +29,7 @@ class User(Base):
     annotations = relationship("Annotation", back_populates="annotator", cascade="all, delete-orphan")
     adjacency_pairs = relationship("AdjacencyPair", back_populates="annotator", cascade="all, delete-orphan")
     question_analysis_annotations = relationship("QuestionAnalysisAnnotation", back_populates="annotator", cascade="all, delete-orphan")
+    agreement_analysis_annotations = relationship("AgreementAnalysisAnnotation", back_populates="annotator", cascade="all, delete-orphan")
     chat_room_completions = relationship("ChatRoomCompletion", back_populates="annotator", cascade="all, delete-orphan")
 
 
@@ -37,9 +38,10 @@ class Project(Base):
     An annotation project grouping one or more chat rooms.
 
     ``annotation_type`` is one of ``"disentanglement"`` (thread labelling),
-    ``"adjacency_pairs"`` (linking FPP/SPP pairs), or ``"question_analysis"``
+    ``"adjacency_pairs"`` (linking FPP/SPP pairs), ``"question_analysis"``
     (per-turn label plus question-form flags: trigger_marker, borderline,
-    multiform).
+    multiform), or ``"agreement_analysis"`` (per-turn agreement/disagreement
+    form with the triggering marker, clarity and multi-form flag).
 
     ``relation_types`` is a JSON list of allowed relation labels used in
     adjacency-pair projects (e.g. ``["Q-A", "Greeting"]``).
@@ -65,6 +67,7 @@ class Project(Base):
     annotations = relationship("Annotation", back_populates="project", cascade="all, delete-orphan")
     adjacency_pairs = relationship("AdjacencyPair", back_populates="project", cascade="all, delete-orphan")
     question_analysis_annotations = relationship("QuestionAnalysisAnnotation", back_populates="project", cascade="all, delete-orphan")
+    agreement_analysis_annotations = relationship("AgreementAnalysisAnnotation", back_populates="project", cascade="all, delete-orphan")
 
 
 class ProjectAssignment(Base):
@@ -142,6 +145,11 @@ class ChatMessage(Base):
     annotations = relationship("Annotation", back_populates="message", cascade="all, delete-orphan")
     question_analysis_annotations = relationship(
         "QuestionAnalysisAnnotation",
+        back_populates="message",
+        cascade="all, delete-orphan"
+    )
+    agreement_analysis_annotations = relationship(
+        "AgreementAnalysisAnnotation",
         back_populates="message",
         cascade="all, delete-orphan"
     )
@@ -285,6 +293,55 @@ class QuestionAnalysisAnnotation(Base):
         Index('ix_qa_annotation_message_annotator', 'message_id', 'annotator_id'),
         Index('ix_qa_annotation_project', 'project_id'),
         UniqueConstraint('message_id', 'annotator_id', name='uix_qa_message_annotator'),
+    )
+
+
+class AgreementAnalysisAnnotation(Base):
+    """
+    An agreement/disagreement-form annotation for one turn.
+
+    Used by projects whose ``annotation_type`` is ``"agreement_analysis"``
+    (see ``docs/agreement-analysis-rubric.md``).  Each row records, for a
+    single (message, annotator) pair, the annotator's decision from the
+    turn's own wording:
+
+    - ``form``: ``"agreement-form"``, ``"disagreement-form"``, or ``"none"``
+      (turn reviewed and not marked — kept so completion can tell reviewed
+      turns from unreviewed ones).
+    - ``marker_check``: which rubric check triggered the label (one of
+      ``AGREEMENT_MARKER_CHECKS`` / ``DISAGREEMENT_MARKER_CHECKS`` in
+      ``schemas``); ``None`` when ``form`` is ``"none"``.
+    - ``marker_span``: the cited token or span from the turn.
+    - ``borderline``: clarity is ``borderline`` instead of ``clear``.
+    - ``multiform``: the turn also carries question-form.
+
+    A marked turn counts as complete only once both ``marker_check`` and
+    ``marker_span`` are filled in.
+    """
+
+    __tablename__ = "agreement_analysis_annotation"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    annotator_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    form: Mapped[str] = mapped_column(String, nullable=False)
+    marker_check: Mapped[str] = mapped_column(String, nullable=True)
+    marker_span: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    borderline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
+    multiform: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    message = relationship("ChatMessage", back_populates="agreement_analysis_annotations")
+    annotator = relationship("User", back_populates="agreement_analysis_annotations")
+    project = relationship("Project", back_populates="agreement_analysis_annotations")
+
+    __table_args__ = (
+        Index('ix_aa_annotation_message_annotator', 'message_id', 'annotator_id'),
+        Index('ix_aa_annotation_project', 'project_id'),
+        UniqueConstraint('message_id', 'annotator_id', name='uix_aa_message_annotator'),
     )
 
 

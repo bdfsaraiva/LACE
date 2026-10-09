@@ -356,6 +356,36 @@
     line-height: 1.5;
 }
 
+/* Agreement-analysis pairwise components */
+.pairwise-details-wrapper {
+    overflow-x: auto;
+}
+
+.pairwise-details-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    color: var(--text-color);
+}
+
+.pairwise-details-table th,
+.pairwise-details-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pairwise-details-table th:first-child,
+.pairwise-details-table td:first-child {
+    text-align: left;
+}
+
+.pairwise-details-table th {
+    color: var(--text-color-secondary);
+    font-weight: 600;
+}
+
 /* No Analysis Section */
 .no-analysis {
     margin-bottom: 2rem;

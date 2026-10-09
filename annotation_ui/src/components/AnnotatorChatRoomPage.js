@@ -35,6 +35,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { projects as projectsApi, annotations as annotationsApi, adjacencyPairs as adjacencyPairsApi, auth } from '../utils/api';
 import MessageBubble from './MessageBubble';
 import QuestionAnalysisChatRoom from './QuestionAnalysisChatRoom';
+import AgreementAnalysisChatRoom from './AgreementAnalysisChatRoom';
 import SmartThreadCard from './SmartThreadCard';
 import Modal from './Modal';
 import ErrorMessage from './ErrorMessage';
@@ -260,9 +261,9 @@ const AnnotatorChatRoomPage = () => {
       setRelationTypes(projectData.relation_types || []);
       assignRelationTypeColors(projectData.relation_types || []);
 
-      // Question-analysis projects use a dedicated standalone component that
-      // owns its own data fetch; skip the rest of this loader.
-      if (projectData.annotation_type === 'question_analysis') {
+      // Question- and agreement-analysis projects use dedicated standalone
+      // components that own their data fetch; skip the rest of this loader.
+      if (projectData.annotation_type === 'question_analysis' || projectData.annotation_type === 'agreement_analysis') {
         setLoading(false);
         return;
       }
@@ -805,6 +806,10 @@ const AnnotatorChatRoomPage = () => {
 
   if (annotationMode === 'question_analysis') {
     return <QuestionAnalysisChatRoom />;
+  }
+
+  if (annotationMode === 'agreement_analysis') {
+    return <AgreementAnalysisChatRoom />;
   }
 
   return (
