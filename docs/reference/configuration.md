@@ -20,7 +20,7 @@ LACE is configured via environment variables. Copy `.env.example` to `.env` at t
 | `FIRST_ADMIN_USERNAME` | `admin` | Username of the admin account created on first startup |
 | `FIRST_ADMIN_PASSWORD` | — | Password for the auto-created admin; required on first startup |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token lifetime in minutes |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token lifetime in days |
+| `SESSION_EXPIRE_MINUTES` | `60` | Absolute session length in minutes, counted from login or the last **Renew session**. Routine token refreshes do not extend it; the UI warns 2 minutes before the end, saves pending work and signs the user out. Replaces `REFRESH_TOKEN_EXPIRE_DAYS`. |
 | `CORS_ORIGINS` | `["http://localhost:3721"]` | JSON array of allowed CORS origins |
 | `API_URL` | `/api` (Docker image), `http://localhost:8000` (`npm start`) | Backend URL as seen by the frontend build; must match the `/api/` proxy location in `annotation_ui/nginx.conf` |
 

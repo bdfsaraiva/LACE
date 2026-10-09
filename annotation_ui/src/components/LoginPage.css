@@ -90,4 +90,13 @@
     border-radius: 4px;
     text-align: center;
     margin-bottom: 1rem;
-} 
+}
+
+.session-expired-message {
+    color: var(--text-color);
+    background-color: var(--background-color-tertiary);
+    border-left: 4px solid var(--primary-color);
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}

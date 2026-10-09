@@ -31,9 +31,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     """JWT signing algorithm."""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    """Lifetime of an access token in minutes."""
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    """Lifetime of a refresh token in days."""
+    """Lifetime of an access token in minutes (never longer than the session)."""
+    SESSION_EXPIRE_MINUTES: int = 60
+    """
+    Absolute session lifetime in minutes, counted from login or from the last
+    explicit "Renew session".  Routine token refreshes do not extend it; when it
+    ends, both tokens stop working and the user must log in again.
+    """
 
     # Password policy
     PASSWORD_MIN_LENGTH: int = 8

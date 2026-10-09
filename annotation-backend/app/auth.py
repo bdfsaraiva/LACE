@@ -5,10 +5,10 @@ FastAPI dependency functions for extracting the current user from a request.
 Two types of tokens are issued:
 - **Access token** — short-lived (configured by ``ACCESS_TOKEN_EXPIRE_MINUTES``);
   carries a ``"type": "access"`` claim.
-- **Refresh token** — longer-lived (``REFRESH_TOKEN_EXPIRE_DAYS``); carries
-  a ``"type": "refresh"`` claim.  ``get_current_user`` rejects refresh tokens,
-  so they can only be exchanged at ``/auth/refresh`` and never authenticate
-  API calls directly.
+- **Refresh token** — expires when the session ends (``SESSION_EXPIRE_MINUTES``
+  after login or the last explicit renewal); carries a ``"type": "refresh"``
+  claim.  ``get_current_user`` rejects refresh tokens, so they can only be
+  exchanged at ``/auth/refresh`` and never authenticate API calls directly.
 """
 from datetime import datetime, timedelta
 from typing import Optional
@@ -212,8 +212,8 @@ async def refresh_access_token(
         db: Database session injected by FastAPI.
 
     Returns:
-        A dict ``{"sub": username}`` suitable for passing to
-        ``create_access_token``.
+        A dict ``{"sub": username, "exp": expiry}`` where ``exp`` is the refresh
+        token's expiry as a Unix timestamp, i.e. the current session end.
 
     Raises:
         HTTPException: 401 if the token is invalid, expired, the wrong type,
@@ -239,4 +239,4 @@ async def refresh_access_token(
     if user is None:
         raise credentials_exception
 
-    return {"sub": username}
+    return {"sub": username, "exp": payload["exp"]}

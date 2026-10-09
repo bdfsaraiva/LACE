@@ -369,6 +369,12 @@ class Token(BaseModel):
 class RefreshTokenRequest(BaseModel):
     """Request body for the token-refresh endpoint."""
     refresh_token: str
+    extend_session: bool = False
+    """
+    ``True`` for the user's explicit "Renew session" action: the session end
+    moves to now + ``SESSION_EXPIRE_MINUTES``.  ``False`` (routine refresh of an
+    expired access token) keeps the current session end.
+    """
 
 
 class TokenData(BaseModel):

@@ -7,8 +7,12 @@
  * user profile via `auth.getCurrentUser` and passes it to the
  * `AuthContext.login` helper, which updates global auth state and navigates
  * the user to their role-appropriate dashboard.
+ *
+ * After an automatic logout (`location.state.sessionExpired`) it also tells
+ * the user that the session ended.
  */
 import React, { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../utils/api';
 import './LoginPage.css';
@@ -25,6 +29,7 @@ const LoginPage = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const { login } = useAuth();
+    const sessionExpired = useLocation().state?.sessionExpired === true;
 
     /**
      * Submit handler: authenticates the user and updates global auth state.
@@ -59,6 +64,11 @@ const LoginPage = () => {
             </div>
             <form onSubmit={handleSubmit} className="login-form">
                 <h2>Login</h2>
+                {sessionExpired && !error && (
+                    <p className="session-expired-message" role="status">
+                        Your session has ended. Please log in again.
+                    </p>
+                )}
                 {error && <p className="error-message">{error}</p>}
                 <div className="form-group">
                     <label htmlFor="username">Username</label>
