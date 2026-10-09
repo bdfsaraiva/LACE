@@ -10,6 +10,14 @@ Navigate to the LACE frontend (default: `http://localhost:3721`) and log in with
 
 Your home screen lists all projects and chat rooms you have been assigned to, along with their completion status.
 
+### Session length
+
+A session lasts **1 hour** from login (configurable by the administrator via `SESSION_EXPIRE_MINUTES`), whether or not you are active. Two minutes before it ends, a banner counts down to the sign-out:
+
+- Click **Renew session** to continue for another full hour.
+- Otherwise, your pending work is saved — including a turn label you are still typing — and you are signed out shortly before the session ends. Log in again to continue.
+- A thread name typed but not yet confirmed with **Enter** is not an assignment yet and is not saved.
+
 ---
 
 ## 2. Open a Room

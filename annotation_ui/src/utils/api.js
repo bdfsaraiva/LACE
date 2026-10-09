@@ -9,11 +9,17 @@
  * - A **response interceptor** that automatically attempts a token refresh on
  *   HTTP 401 responses (one retry per request via `_retry`; concurrent 401s
  *   share a single refresh call).  If the refresh also fails, both tokens are
- *   cleared and the user is redirected to `/login`.  A 401 from the login
- *   request itself (wrong credentials) is passed through to the caller.
+ *   cleared and the user is redirected to `/login`.  A 401 from the auth
+ *   endpoints themselves (wrong credentials, ended session) is passed through
+ *   to the caller.
+ * - Tracking of write requests still in flight (`waitForPendingWrites`), so
+ *   logout can wait for saves before dropping the tokens.
+ *
+ * The session end (`session_expires_at`, Unix seconds) is stored next to the
+ * tokens on login, refresh and renewal; `SessionTimeout` reads it.
  *
  * Named exports group endpoint wrappers by domain:
- * - `auth`         — login, logout, current-user
+ * - `auth`         — login, logout, session renewal, current-user
  * - `projects`     — project and chat-room CRUD, CSV import, read-status
  * - `users`        — admin user management
  * - `annotations`  — disentanglement annotation CRUD, aggregated view, IAA
@@ -35,12 +41,62 @@ const api = axios.create({
     },
 });
 
-// Inject the stored access token into every outgoing request header.
+/**
+ * Store a token response from `/auth/token` or `/auth/refresh`.
+ * @param {{access_token: string, refresh_token: string, session_expires_at: number}} tokens
+ */
+const storeSession = ({ access_token, refresh_token, session_expires_at }) => {
+    localStorage.setItem('access_token', access_token);
+    localStorage.setItem('refresh_token', refresh_token);
+    localStorage.setItem('session_expires_at', String(session_expires_at));
+};
+
+// Auth endpoints whose 401 means wrong credentials or an ended session, not an
+// expired access token: refreshing and retrying them makes no sense.
+const AUTH_PATHS = ['/auth/token', '/auth/refresh'];
+
+const WRITE_METHODS = ['post', 'put', 'patch', 'delete'];
+
+// Write requests sent but not yet answered, and the callers waiting for that
+// count to reach zero (see `waitForPendingWrites`).
+let pendingWrites = 0;
+let pendingWritesWaiters = [];
+
+/**
+ * Stop counting a write request once it has finally settled.
+ * @param {Object} [config] - The axios request config.
+ */
+const settleWrite = (config) => {
+    if (!config?._pendingWrite) return;
+    config._pendingWrite = false;
+    pendingWrites -= 1;
+    if (pendingWrites === 0) {
+        pendingWritesWaiters.forEach((resolve) => resolve());
+        pendingWritesWaiters = [];
+    }
+};
+
+/**
+ * Resolve once no write request (POST/PUT/PATCH/DELETE) is in flight.
+ * @returns {Promise<void>}
+ */
+export const waitForPendingWrites = () => (
+    pendingWrites === 0
+        ? Promise.resolve()
+        : new Promise((resolve) => pendingWritesWaiters.push(resolve))
+);
+
+// Inject the stored access token into every outgoing request header, and count
+// write requests.  A request retried after a token refresh is counted once.
 api.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem('access_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
+        }
+        if (WRITE_METHODS.includes(config.method) && !config._pendingWrite) {
+            pendingWrites += 1;
+            config._pendingWrite = true;
         }
         return config;
     },
@@ -59,28 +115,33 @@ let refreshPromise = null;
 // request.  The `_retry` flag prevents infinite loops if the refresh also
 // returns a 401.
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        settleWrite(response.config);
+        return response;
+    },
     async (error) => {
         const originalRequest = error.config;
 
         // Surface network-level errors (no HTTP response at all) with a clear message.
         if (!error.response) {
+            settleWrite(originalRequest);
             return Promise.reject({
                 message: 'Network error or server is not responding',
                 originalError: error
             });
         }
 
-        // A 401 from the login request means wrong credentials, not an expired
-        // session: let the login form show the error instead of reloading.
-        const isLoginRequest = originalRequest.url === '/auth/token';
+        // E.g. a 401 from the login request means wrong credentials: let the
+        // login form show the error instead of reloading.
+        const isAuthRequest = AUTH_PATHS.includes(originalRequest.url);
 
-        if (error.response.status === 401 && !originalRequest._retry && !isLoginRequest) {
+        if (error.response.status === 401 && !originalRequest._retry && !isAuthRequest) {
             originalRequest._retry = true;
             try {
                 const refreshToken = localStorage.getItem('refresh_token');
                 if (!refreshToken) {
                     // No refresh token available — force the user to log in again.
+                    settleWrite(originalRequest);
                     localStorage.removeItem('access_token');
                     window.location.href = '/login';
                     return Promise.reject(error);
@@ -96,20 +157,22 @@ api.interceptors.response.use(
                 }
                 const response = await refreshPromise;
                 // The backend rotates the refresh token: keep the new one, or the
-                // session ends when the original refresh token expires.
-                const { access_token, refresh_token } = response.data;
-                localStorage.setItem('access_token', access_token);
-                localStorage.setItem('refresh_token', refresh_token);
-                originalRequest.headers.Authorization = `Bearer ${access_token}`;
+                // next refresh fails.
+                storeSession(response.data);
+                originalRequest.headers.Authorization = `Bearer ${response.data.access_token}`;
+                // Still counted as an in-flight write until the retry settles.
                 return api(originalRequest);
             } catch (err) {
                 // Refresh also failed — clear credentials and redirect to login.
+                settleWrite(originalRequest);
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('refresh_token');
+                localStorage.removeItem('session_expires_at');
                 window.location.href = '/login';
                 return Promise.reject(err);
             }
         }
+        settleWrite(originalRequest);
         return Promise.reject(error);
     }
 );
@@ -123,7 +186,8 @@ export const auth = {
      * Log in with username and password credentials.
      *
      * Sends an `application/x-www-form-urlencoded` body (required by the OAuth2
-     * password grant endpoint) and persists both tokens in `localStorage`.
+     * password grant endpoint) and persists both tokens and the session end in
+     * `localStorage`.
      *
      * @param {string} username
      * @param {string} password
@@ -139,19 +203,33 @@ export const auth = {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
         });
-        const { access_token, refresh_token } = response.data;
-        localStorage.setItem('access_token', access_token);
-        localStorage.setItem('refresh_token', refresh_token);
+        storeSession(response.data);
         return response.data;
     },
 
     /**
-     * Clear both tokens from `localStorage` (client-side logout only).
-     * No server-side token revocation is performed.
+     * Extend the session by another full period (the "Renew session" action)
+     * and store the new tokens and session end.
+     *
+     * @returns {Promise<Object>} The new token response.
+     */
+    renewSession: async () => {
+        const response = await api.post('/auth/refresh', {
+            refresh_token: localStorage.getItem('refresh_token'),
+            extend_session: true,
+        });
+        storeSession(response.data);
+        return response.data;
+    },
+
+    /**
+     * Clear the tokens and session end from `localStorage` (client-side logout
+     * only).  No server-side token revocation is performed.
      */
     logout: () => {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
+        localStorage.removeItem('session_expires_at');
     },
 
     /**

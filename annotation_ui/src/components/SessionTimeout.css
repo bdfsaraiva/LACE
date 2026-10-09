@@ -1,0 +1,48 @@
+/* Above page content and modals (Modal.css uses z-index 1000), so the
+   "Renew session" button stays reachable while a modal is open. */
+.session-timeout-banner {
+    position: fixed;
+    top: 68px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1100;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    width: min(640px, calc(100% - 2rem));
+    padding: 0.75rem 1rem;
+    color: var(--text-color);
+    background-color: var(--background-color-secondary);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid #f59e0b;
+    border-radius: var(--border-radius);
+    box-shadow: var(--card-shadow);
+}
+
+.session-timeout-text {
+    flex: 1 1 260px;
+}
+
+.session-timeout-renew {
+    padding: 0.5rem 1rem;
+    color: #ffffff;
+    background-color: var(--primary-color);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.session-timeout-renew:hover:not(:disabled) {
+    background-color: var(--primary-color-dark);
+}
+
+.session-timeout-renew:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.session-timeout-error {
+    flex-basis: 100%;
+    color: var(--error-color);
+}

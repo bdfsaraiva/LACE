@@ -16,7 +16,8 @@ Endpoints:
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
+from calendar import timegm
+from datetime import datetime, timedelta
 
 from ..database import get_db
 from ..models import User
@@ -51,9 +52,53 @@ class TokenResponse(Token):
     """
 
     refresh_token: str
-    """Long-lived token that can be exchanged for a new access token."""
+    """Token that can be exchanged for a new access token until the session ends."""
     expires_in: int
     """Access-token lifetime expressed in **seconds** (for client convenience)."""
+    session_expires_at: int
+    """Session end as a Unix timestamp (seconds); the refresh token expires then."""
+
+
+def _issue_tokens(username: str, session_expires_at: datetime) -> TokenResponse:
+    """
+    Build an access/refresh token pair bounded by the session end.
+
+    The refresh token expires exactly at ``session_expires_at``; the access
+    token lives ``ACCESS_TOKEN_EXPIRE_MINUTES`` but never past the session end,
+    so no token outlives the session.
+
+    Args:
+        username: Subject (``sub``) of both tokens.
+        session_expires_at: Naive UTC datetime at which the session ends.
+
+    Returns:
+        The ``TokenResponse`` to send to the client.
+    """
+    # Whole seconds, like the JWT "exp" claim, so the refresh token's expiry
+    # equals session_expires_at despite the microseconds between utcnow() calls.
+    session_expires_at = session_expires_at.replace(microsecond=0)
+    now = datetime.utcnow()
+    access_expires_at = min(
+        now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        session_expires_at
+    )
+    access_token = create_access_token(
+        data={"sub": username},
+        expires_delta=access_expires_at - now
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": username},
+        expires_delta=session_expires_at - now
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        expires_in=int((access_expires_at - now).total_seconds()),
+        # Same conversion python-jose uses for "exp", so this equals the
+        # refresh token's expiry claim.
+        session_expires_at=timegm(session_expires_at.utctimetuple())
+    )
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -78,8 +123,9 @@ async def login(
         db: Database session injected by FastAPI.
 
     Returns:
-        A ``TokenResponse`` containing a short-lived access token, a long-lived
-        refresh token, and the access-token expiry in seconds.
+        A ``TokenResponse`` with a short-lived access token, a refresh token
+        valid until the session ends (``SESSION_EXPIRE_MINUTES`` from now), the
+        access-token expiry in seconds, and the session end.
 
     Raises:
         HTTPException: 429 if the rate limit is exceeded.
@@ -96,28 +142,8 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Issue a short-lived access token using the configured expiry window.
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username},
-        expires_delta=access_token_expires
-    )
-
-    # Issue a long-lived refresh token so the client can silently renew the
-    # access token without prompting the user to log in again.
-    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    refresh_token = create_refresh_token(
-        data={"sub": user.username},
-        expires_delta=refresh_token_expires
-    )
-
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-        # Convert minutes → seconds for the standard OAuth2 ``expires_in`` field.
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    )
+    session_expires_at = datetime.utcnow() + timedelta(minutes=settings.SESSION_EXPIRE_MINUTES)
+    return _issue_tokens(user.username, session_expires_at)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -134,9 +160,16 @@ async def refresh_token(
     Both old tokens are discarded; the client should store the newly returned
     pair.
 
+    Sessions have an absolute lifetime: a routine refresh (access token
+    expired) keeps the current session end, and only ``extend_session=true``
+    (the user's explicit "Renew session") moves it to now +
+    ``SESSION_EXPIRE_MINUTES``.  Once the session has ended the refresh token is
+    expired, so neither kind of refresh is possible.
+
     Args:
         request: Raw HTTP request used for rate limiting.
-        payload: JSON body containing the ``refresh_token`` string.
+        payload: JSON body with the ``refresh_token`` string and the
+            ``extend_session`` flag.
         db: Database session injected by FastAPI.
 
     Returns:
@@ -150,24 +183,14 @@ async def refresh_token(
     enforce_rate_limit(request, auth_rate_limiter, scope="auth")
     token_data = await refresh_access_token(refresh_token=payload.refresh_token, db=db)
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": token_data["sub"]},
-        expires_delta=access_token_expires
-    )
-
-    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    new_refresh_token = create_refresh_token(
-        data={"sub": token_data["sub"]},
-        expires_delta=refresh_token_expires
-    )
-
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=new_refresh_token,
-        token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    )
+    renewed_session_end = datetime.utcnow() + timedelta(minutes=settings.SESSION_EXPIRE_MINUTES)
+    if payload.extend_session:
+        session_expires_at = renewed_session_end
+    else:
+        # Keep the current session end.  min() also caps refresh tokens issued
+        # before sessions were time-limited (they had a 7-day lifetime).
+        session_expires_at = min(datetime.utcfromtimestamp(token_data["exp"]), renewed_session_end)
+    return _issue_tokens(token_data["sub"], session_expires_at)
 
 
 @router.get("/me", response_model=UserSchema)

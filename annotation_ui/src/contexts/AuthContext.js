@@ -15,7 +15,7 @@
  */
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../utils/api';
+import { auth, waitForPendingWrites } from '../utils/api';
 
 const AuthContext = createContext(null);
 
@@ -70,13 +70,31 @@ export const AuthProvider = ({ children }) => {
     };
 
     /**
-     * Clear tokens, reset auth state, and redirect to the home page.
+     * Save pending work, then clear tokens, reset auth state, and redirect to
+     * the login page.
+     *
+     * Used both by the Logout button and by the automatic logout when the
+     * session ends, so it must run while the tokens are still valid.
+     *
+     * @param {Object} [options]
+     * @param {boolean} [options.sessionExpired=false] - Show the "session
+     *   expired" notice on the login page.
+     * @returns {Promise<void>}
      */
-    const logout = () => {
+    const logout = async ({ sessionExpired = false } = {}) => {
+        // Edits not yet sent to the server can only live in the focused field:
+        // inputs that save on blur (e.g. question-analysis labels) have already
+        // saved once they lost focus.  Blurring the focused one saves it too.
+        document.activeElement?.blur();
+        // Let the blur handlers send their requests, then wait for every save
+        // still in flight before dropping the tokens they authenticate with.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await waitForPendingWrites();
+
         auth.logout();
         setCurrentUser(null);
         setIsAuthenticated(false);
-        navigate('/');
+        navigate('/login', { state: { sessionExpired } });
     };
 
     const value = {

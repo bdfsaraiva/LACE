@@ -38,6 +38,7 @@ import { useAuth } from './contexts/AuthContext';
 import LoginPage from './components/LoginPage';
 import AdminProjectPage from './components/AdminProjectPage';
 import AdminChatRoomView from './components/AdminChatRoomView';
+import SessionTimeout from './components/SessionTimeout';
 
 /**
  * Root component.  Owns the theme state and renders the top-level layout
@@ -65,6 +66,7 @@ function App() {
                 <h1>LACE</h1>
                 <AuthMenu theme={theme} toggleTheme={toggleTheme} />
             </header>
+            <SessionTimeout />
             <main className="app-main">
                 <Routes>
                     {/* Public and Auth Routes */}
