@@ -26,9 +26,9 @@ docker compose logs -f frontend
 
 | Service | URL |
 |---|---|
-| Backend | http://localhost:8000/ |
-| Swagger UI | http://localhost:8000/docs |
-| Frontend | http://localhost:3721 |
+| Backend | http://localhost/api/ |
+| Swagger UI | http://localhost/api/docs |
+| Frontend | http://localhost |
 
 ---
 

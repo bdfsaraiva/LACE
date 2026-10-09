@@ -166,7 +166,8 @@ def create_adjacency_pair(
         The created or updated ``AdjacencyPairSchema``.
 
     Raises:
-        HTTPException: 404 if the project, room, or either message is not found.
+        HTTPException: 404 if the project, room, or either message is not found,
+            or the room does not belong to the project.
         HTTPException: 400 for any validation failure.
         HTTPException: 403 if the user is not assigned to the project.
     """
@@ -174,6 +175,15 @@ def create_adjacency_pair(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     _ensure_project_mode(project)
+
+    # verify_project_access only covers project_id; without this check an
+    # annotator could write into a room of a project they are not assigned to.
+    chat_room = db.query(ChatRoom).filter(
+        ChatRoom.id == room_id,
+        ChatRoom.project_id == project_id
+    ).first()
+    if not chat_room:
+        raise HTTPException(status_code=404, detail="Chat room not found in this project")
 
     if not project.relation_types:
         raise HTTPException(

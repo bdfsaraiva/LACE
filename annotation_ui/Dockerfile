@@ -4,7 +4,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-ARG API_URL
+# nginx proxies /api/ to the backend (see nginx.conf); keep these in sync.
+ARG API_URL=/api
 ENV API_URL=$API_URL
 RUN npm run build
 

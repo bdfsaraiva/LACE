@@ -25,5 +25,11 @@ fi
 # Run database migrations
 alembic upgrade head
 
-# Start the FastAPI application
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Start the FastAPI application (production: no --reload).
+# --forwarded-allow-ips="*": the backend port is not published, so only the
+#   nginx container can reach it; trusting its X-Forwarded-For gives the auth
+#   rate limiter the real client IP instead of nginx's.
+# --root-path /api: nginx serves the API under /api (stripping the prefix),
+#   so Swagger UI at /api/docs must load /api/openapi.json.
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+    --proxy-headers --forwarded-allow-ips="*" --root-path /api

@@ -50,7 +50,8 @@ async def get_current_user(
         The authenticated ``User`` ORM object.
 
     Raises:
-        HTTPException: 401 if the token is invalid or the user no longer exists.
+        HTTPException: 401 if the token is invalid, a refresh token, or the
+            user no longer exists.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -61,6 +62,10 @@ async def get_current_user(
         payload = jwt.decode(
             token, get_settings().SECRET_KEY, algorithms=[get_settings().ALGORITHM]
         )
+        # Same rule as ``app.auth.get_current_user``: refresh tokens never
+        # authenticate API calls; legacy access tokens without "type" still do.
+        if payload.get("type") == "refresh":
+            raise credentials_exception
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception

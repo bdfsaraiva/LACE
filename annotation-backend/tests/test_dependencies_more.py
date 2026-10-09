@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 from jose import jwt
 
 from app.dependencies import get_db, get_current_user, get_current_admin_user, verify_project_access
@@ -28,6 +29,15 @@ async def test_get_current_user_missing_sub(db_session):
 async def test_get_current_user_invalid_token(db_session):
     with pytest.raises(Exception):
         await get_current_user(token="invalid.token.value", db=db_session)
+
+
+@pytest.mark.anyio
+async def test_get_current_user_rejects_refresh_token(db_session):
+    user = create_user(db_session, "dep_refresh", "pass", is_admin=False)
+    token = create_refresh_token({"sub": user.username})
+    with pytest.raises(HTTPException) as exc:
+        await get_current_user(token=token, db=db_session)
+    assert exc.value.status_code == 401
 
 
 @pytest.mark.anyio

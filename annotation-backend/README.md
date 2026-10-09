@@ -56,6 +56,9 @@ Authentication:
 - POST /auth/refresh
 - GET /auth/me
 
+There is no self-registration: accounts are created by an admin via `POST /admin/users`.
+Refresh tokens are only accepted by `/auth/refresh`; using one as a Bearer token on any other endpoint returns 401.
+
 Admin:
 - GET /admin/users
 - POST /admin/users

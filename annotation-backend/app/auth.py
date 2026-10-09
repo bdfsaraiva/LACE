@@ -3,10 +3,12 @@ Authentication helpers: password hashing, JWT creation/validation, and
 FastAPI dependency functions for extracting the current user from a request.
 
 Two types of tokens are issued:
-- **Access token** — short-lived (configured by ``ACCESS_TOKEN_EXPIRE_MINUTES``).
+- **Access token** — short-lived (configured by ``ACCESS_TOKEN_EXPIRE_MINUTES``);
+  carries a ``"type": "access"`` claim.
 - **Refresh token** — longer-lived (``REFRESH_TOKEN_EXPIRE_DAYS``); carries
-  an extra ``"type": "refresh"`` claim so it can be distinguished from access
-  tokens and cannot be used directly to authenticate API calls.
+  a ``"type": "refresh"`` claim.  ``get_current_user`` rejects refresh tokens,
+  so they can only be exchanged at ``/auth/refresh`` and never authenticate
+  API calls directly.
 """
 from datetime import datetime, timedelta
 from typing import Optional
@@ -84,6 +86,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """
     Create a signed JWT access token.
 
+    The token carries a ``"type": "access"`` claim so it can be told apart
+    from refresh tokens.
+
     Args:
         data: Claims to include in the token payload (typically ``{"sub": username}``).
         expires_delta: How long until the token expires.  Defaults to 15 minutes
@@ -97,7 +102,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
@@ -142,8 +147,8 @@ async def get_current_user(
         The authenticated ``User`` ORM object.
 
     Raises:
-        HTTPException: 401 if the token is missing, expired, invalid, or the
-            user no longer exists in the database.
+        HTTPException: 401 if the token is missing, expired, invalid, a refresh
+            token, or the user no longer exists in the database.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -152,6 +157,11 @@ async def get_current_user(
     )
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        # Reject refresh tokens explicitly instead of requiring "type": "access":
+        # access tokens issued before that claim existed must stay valid until
+        # they expire.
+        if payload.get("type") == "refresh":
+            raise credentials_exception
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception

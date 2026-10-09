@@ -15,7 +15,7 @@ cp .env.example .env
 
 Edit .env if the backend runs on another machine:
 ```env
-REACT_APP_API_URL=http://192.168.1.100:8000
+API_URL=http://192.168.1.100:8000
 ```
 
 ## Run locally
@@ -31,6 +31,8 @@ From the repository root:
 docker compose up -d --build
 ```
 
+The image is built with `API_URL=/api`; nginx (`nginx.conf`) serves the app and proxies `/api/*` to the backend.
+
 ## Notes
-- The frontend expects the backend API at REACT_APP_API_URL
+- The frontend expects the backend API at API_URL (read at build time)
 - If you change .env, restart the dev server

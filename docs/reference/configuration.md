@@ -22,7 +22,7 @@ LACE is configured via environment variables. Copy `.env.example` to `.env` at t
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token lifetime in minutes |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token lifetime in days |
 | `CORS_ORIGINS` | `["http://localhost:3721"]` | JSON array of allowed CORS origins |
-| `API_URL` | `http://localhost:8000` | Backend URL as seen by the frontend build |
+| `API_URL` | `/api` (Docker image), `http://localhost:8000` (`npm start`) | Backend URL as seen by the frontend build; must match the `/api/` proxy location in `annotation_ui/nginx.conf` |
 
 ---
 

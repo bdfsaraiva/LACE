@@ -7,8 +7,10 @@
  * - A **request interceptor** that injects the stored Bearer token into every
  *   outgoing request.
  * - A **response interceptor** that automatically attempts a token refresh on
- *   HTTP 401 responses (one retry per request via `_retry`).  If the refresh
- *   also fails, both tokens are cleared and the user is redirected to `/login`.
+ *   HTTP 401 responses (one retry per request via `_retry`; concurrent 401s
+ *   share a single refresh call).  If the refresh also fails, both tokens are
+ *   cleared and the user is redirected to `/login`.  A 401 from the login
+ *   request itself (wrong credentials) is passed through to the caller.
  *
  * Named exports group endpoint wrappers by domain:
  * - `auth`         — login, logout, current-user
@@ -47,6 +49,12 @@ api.interceptors.request.use(
     }
 );
 
+// In-flight `/auth/refresh` call shared by every request that fails with 401
+// at the same time.  Pages load data with `Promise.all`, and the backend
+// rate-limits auth endpoints and rotates the refresh token on each call, so
+// parallel refreshes could get the user logged out.
+let refreshPromise = null;
+
 // Silently refresh the access token on 401 responses and retry the original
 // request.  The `_retry` flag prevents infinite loops if the refresh also
 // returns a 401.
@@ -63,7 +71,11 @@ api.interceptors.response.use(
             });
         }
 
-        if (error.response.status === 401 && !originalRequest._retry) {
+        // A 401 from the login request means wrong credentials, not an expired
+        // session: let the login form show the error instead of reloading.
+        const isLoginRequest = originalRequest.url === '/auth/token';
+
+        if (error.response.status === 401 && !originalRequest._retry && !isLoginRequest) {
             originalRequest._retry = true;
             try {
                 const refreshToken = localStorage.getItem('refresh_token');
@@ -75,11 +87,19 @@ api.interceptors.response.use(
                 }
                 // Use a bare `axios` call (not the intercepted `api` instance) to
                 // avoid triggering the response interceptor again on this refresh call.
-                const response = await axios.post(`${API_URL}/auth/refresh`, {
-                    refresh_token: refreshToken,
-                });
-                const { access_token } = response.data;
+                if (!refreshPromise) {
+                    refreshPromise = axios
+                        .post(`${API_URL}/auth/refresh`, { refresh_token: refreshToken })
+                        .finally(() => {
+                            refreshPromise = null;
+                        });
+                }
+                const response = await refreshPromise;
+                // The backend rotates the refresh token: keep the new one, or the
+                // session ends when the original refresh token expires.
+                const { access_token, refresh_token } = response.data;
                 localStorage.setItem('access_token', access_token);
+                localStorage.setItem('refresh_token', refresh_token);
                 originalRequest.headers.Authorization = `Bearer ${access_token}`;
                 return api(originalRequest);
             } catch (err) {

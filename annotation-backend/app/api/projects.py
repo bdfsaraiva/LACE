@@ -729,7 +729,8 @@ def update_read_status(
         204 No Content on success.
 
     Raises:
-        HTTPException: 404 if the chat room does not belong to the project.
+        HTTPException: 404 if the chat room does not belong to the project, or
+            any ``message_id`` is not a message of that room.
     """
     chat_room = db.query(ChatRoom).filter(
         ChatRoom.id == room_id,
@@ -737,6 +738,20 @@ def update_read_status(
     ).first()
     if not chat_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat room not found")
+
+    # Every flagged message must belong to this room, otherwise read flags could
+    # be written onto messages of rooms (and projects) the user cannot access.
+    message_ids = {s.message_id for s in payload.statuses}
+    messages_in_room = db.query(ChatMessage).filter(
+        ChatMessage.id.in_(message_ids),
+        ChatMessage.chat_room_id == room_id
+    ).count()
+    if messages_in_room != len(message_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more messages not found in this chat room"
+        )
+
     crud.batch_upsert_read_status(
         db=db,
         room_id=room_id,

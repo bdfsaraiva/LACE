@@ -1,14 +1,16 @@
 """
-Authentication endpoints: login, token refresh, registration, and current-user lookup.
+Authentication endpoints: login, token refresh, and current-user lookup.
 
 All endpoints in this module live under the ``/auth`` URL prefix.  The module
 applies a shared ``RateLimiter`` instance to the token and refresh endpoints to
 limit brute-force attempts on the credential flow.
 
+There is no self-registration: user accounts are created by an admin through
+``POST /admin/users``.
+
 Endpoints:
 - ``POST /auth/token``   — exchange username/password for access + refresh tokens
 - ``POST /auth/refresh`` — exchange a refresh token for a new token pair
-- ``POST /auth/register`` — create a new user account
 - ``GET  /auth/me``      — return the authenticated user's profile
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,15 +20,13 @@ from datetime import timedelta
 
 from ..database import get_db
 from ..models import User
-from ..schemas import Token, UserCreate, User as UserSchema, RefreshTokenRequest
+from ..schemas import Token, User as UserSchema, RefreshTokenRequest
 from ..auth import (
     verify_password,
     create_access_token,
     create_refresh_token,
-    get_password_hash,
     get_current_user,
     refresh_access_token,
-    validate_password_strength,
 )
 from ..config import get_settings
 from ..utils.rate_limit import RateLimiter, enforce_rate_limit
@@ -168,63 +168,6 @@ async def refresh_token(
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
-
-
-@router.post("/register", response_model=UserSchema)
-async def register_user(
-    user_data: UserCreate,
-    db: Session = Depends(get_db)
-) -> User:
-    """
-    Create a new user account.
-
-    The password is validated against the configured policy before being hashed
-    and stored.  Usernames must be unique across the platform.
-
-    Args:
-        user_data: ``UserCreate`` payload with ``username``, ``password``, and
-            optional ``is_admin`` flag.
-        db: Database session injected by FastAPI.
-
-    Returns:
-        The newly created ``User`` ORM object serialised as a ``UserSchema``.
-
-    Raises:
-        HTTPException: 400 if the username is already taken.
-        HTTPException: 400 if the password does not meet the policy requirements.
-        HTTPException: 500 if the database commit fails for an unexpected reason.
-    """
-    existing_user = db.query(User).filter(User.username == user_data.username).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
-        )
-
-    # Validate policy before hashing so the error message is clear.
-    try:
-        validate_password_strength(user_data.password)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        username=user_data.username,
-        hashed_password=hashed_password,
-        is_admin=user_data.is_admin
-    )
-
-    try:
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        return new_user
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create user: {str(e)}"
-        )
 
 
 @router.get("/me", response_model=UserSchema)
