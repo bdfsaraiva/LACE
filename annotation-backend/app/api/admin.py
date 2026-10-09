@@ -19,6 +19,7 @@ Endpoint groups:
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
+import csv
 import io
 import os
 import json
@@ -1533,6 +1534,165 @@ async def export_question_analysis_json(
         filename = f"qa_{chat_room_id}_{safe_room_name}_PARTIAL_{completion_percentage}pct_{timestamp}.json"
     else:
         filename = f"qa_{chat_room_id}_{safe_room_name}_INSUFFICIENT_{timestamp}.json"
+
+    return JSONResponse(
+        content=export_data,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+def _get_agreement_analysis_room(db: Session, chat_room_id: int) -> models.ChatRoom:
+    """
+    Return the chat room after checking it belongs to an agreement-analysis project.
+
+    Raises:
+        HTTPException: 404 if the room does not exist; 400 if its project is
+            not in agreement-analysis mode.
+    """
+    chat_room = crud.get_chat_room(db, chat_room_id)
+    if not chat_room:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat room not found")
+    project = crud.get_project(db, chat_room.project_id)
+    if not project or project.annotation_type != "agreement_analysis":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This chat room does not belong to an agreement-analysis project"
+        )
+    return chat_room
+
+
+@router.get("/chat-rooms/{chat_room_id}/export-agreement-analysis")
+async def export_agreement_analysis(
+    chat_room_id: int,
+    annotator_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+) -> Response:
+    """
+    Export agreement-analysis annotations as the rubric's record table: one
+    CSV row per **marked** turn (``none`` decisions are left out, as in the
+    rubric).
+
+    CSV columns (header included)::
+
+        turn_id,label,triggering_marker_check,triggering_marker_span,clarity,multi_form
+
+    ``clarity`` is ``clear`` / ``borderline`` and ``multi_form`` is
+    ``yes`` / ``no``.  A marked turn that is still incomplete has an empty
+    check or span.
+
+    **Single annotator** (``annotator_id`` supplied) — returns a single
+    ``text/csv`` file named ``{room_name}-{username}.csv``.
+
+    **All annotators** (``annotator_id`` omitted) — returns a
+    ``application/zip`` archive with one ``.csv`` file per annotator assigned
+    to the project.
+    """
+    chat_room = _get_agreement_analysis_room(db, chat_room_id)
+    header = ["turn_id", "label", "triggering_marker_check", "triggering_marker_span", "clarity", "multi_form"]
+
+    def _csv_content(rows: list) -> str:
+        """Render ``(annotation, turn_id)`` rows as CSV text."""
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(header)
+        for annotation, turn_id in rows:
+            span = annotation.marker_span
+            # The span is free text: keep spreadsheet apps from running it as a formula.
+            if span[:1] in ("=", "+", "-", "@"):
+                span = "'" + span
+            writer.writerow([
+                turn_id,
+                annotation.form,
+                annotation.marker_check or "",
+                span,
+                "borderline" if annotation.borderline else "clear",
+                "yes" if annotation.multiform else "no",
+            ])
+        return output.getvalue()
+
+    marked_rows_query = (
+        db.query(models.AgreementAnalysisAnnotation, models.ChatMessage.turn_id)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .filter(
+            models.ChatMessage.chat_room_id == chat_room_id,
+            models.AgreementAnalysisAnnotation.form != "none",
+        )
+    )
+    safe_room_name = sanitize_filename(chat_room.name)
+
+    if annotator_id is not None:
+        user = crud.get_user(db, annotator_id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Annotator not found")
+        rows = (
+            marked_rows_query
+            .filter(models.AgreementAnalysisAnnotation.annotator_id == annotator_id)
+            .order_by(models.ChatMessage.id)
+            .all()
+        )
+        safe_annotator = sanitize_filename(user.username or f"user_{annotator_id}")
+        return Response(
+            content=_csv_content(rows),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={safe_room_name}-{safe_annotator}.csv"}
+        )
+
+    assigned_users = (
+        db.query(models.User)
+        .join(models.ProjectAssignment, models.User.id == models.ProjectAssignment.user_id)
+        .filter(models.ProjectAssignment.project_id == chat_room.project_id)
+        .all()
+    )
+    if not assigned_users:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No annotators assigned to this project")
+
+    grouped_by_user: dict = {}
+    for annotation, turn_id in marked_rows_query.order_by(models.ChatMessage.id).all():
+        grouped_by_user.setdefault(annotation.annotator_id, []).append((annotation, turn_id))
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for user in assigned_users:
+            safe_annotator = sanitize_filename(user.username or f"user_{user.id}")
+            zf.writestr(f"{safe_room_name}-{safe_annotator}.csv", _csv_content(grouped_by_user.get(user.id, [])))
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={safe_room_name}-agreement-all.zip"}
+    )
+
+
+@router.get("/chat-rooms/{chat_room_id}/export-agreement-analysis-json")
+async def export_agreement_analysis_json(
+    chat_room_id: int,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+) -> JSONResponse:
+    """
+    Export all agreement-analysis decisions as a downloadable JSON file.
+
+    Same envelope as the question-analysis export (``export_metadata`` plus
+    ``data.messages[]``); every decision is included, ``none`` ones too.
+
+    Raises:
+        HTTPException: 404 if the chat room does not exist.
+        HTTPException: 400 if the room does not belong to an agreement-analysis project.
+    """
+    _get_agreement_analysis_room(db, chat_room_id)
+    export_data = crud.export_agreement_analysis_data(db=db, chat_room_id=chat_room_id)
+
+    metadata = export_data["export_metadata"]
+    safe_room_name = sanitize_filename(metadata["chat_room_name"])
+    completion_status = metadata["completion_status"]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if completion_status == "PARTIAL":
+        status_part = f"PARTIAL_{metadata['completion_percentage']}pct"
+    else:
+        status_part = completion_status
+    filename = f"agreement_{chat_room_id}_{safe_room_name}_{status_part}_{timestamp}.json"
 
     return JSONResponse(
         content=export_data,

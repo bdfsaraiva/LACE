@@ -12,6 +12,7 @@ Functions are grouped by domain:
 """
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Tuple
 from . import models, schemas
 from fastapi import HTTPException
@@ -795,6 +796,201 @@ def upsert_question_analysis_annotation(
     db.commit()
     db.refresh(db_annotation)
     return db_annotation
+
+
+# ---------------------------------------------------------------------------
+# AgreementAnalysisAnnotation CRUD
+# ---------------------------------------------------------------------------
+
+def is_agreement_annotation_complete(annotation: models.AgreementAnalysisAnnotation) -> bool:
+    """
+    Whether an agreement-analysis decision is complete: ``none``, or a marked
+    turn with both the marker check and the cited span filled in.
+    """
+    return annotation.form == "none" or bool(annotation.marker_check and annotation.marker_span.strip())
+
+
+def get_agreement_analysis_annotation(
+    db: Session, annotation_id: int
+) -> Optional[models.AgreementAnalysisAnnotation]:
+    """Retrieve an agreement-analysis annotation by primary key."""
+    return (
+        db.query(models.AgreementAnalysisAnnotation)
+        .filter(models.AgreementAnalysisAnnotation.id == annotation_id)
+        .first()
+    )
+
+
+def get_agreement_analysis_for_message_by_annotator(
+    db: Session, message_id: int, annotator_id: int
+) -> Optional[models.AgreementAnalysisAnnotation]:
+    """Return the single agreement-analysis annotation for a (message, annotator) pair, if any."""
+    return (
+        db.query(models.AgreementAnalysisAnnotation)
+        .filter(
+            models.AgreementAnalysisAnnotation.message_id == message_id,
+            models.AgreementAnalysisAnnotation.annotator_id == annotator_id,
+        )
+        .first()
+    )
+
+
+def get_agreement_analysis_for_chat_room_by_annotator(
+    db: Session, chat_room_id: int, annotator_id: int
+) -> List[Tuple[models.AgreementAnalysisAnnotation, str]]:
+    """
+    Fetch agreement-analysis annotations for a chat room scoped to a single annotator.
+
+    Returns a list of ``(AgreementAnalysisAnnotation, annotator_username)`` tuples.
+    """
+    return (
+        db.query(models.AgreementAnalysisAnnotation, models.User.username)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .join(models.User, models.AgreementAnalysisAnnotation.annotator_id == models.User.id)
+        .filter(
+            models.ChatMessage.chat_room_id == chat_room_id,
+            models.AgreementAnalysisAnnotation.annotator_id == annotator_id,
+        )
+        .all()
+    )
+
+
+def get_all_agreement_analysis_for_chat_room_admin(
+    db: Session, chat_room_id: int
+) -> List[Tuple[models.AgreementAnalysisAnnotation, str]]:
+    """Fetch ALL agreement-analysis annotations for a chat room across annotators (admin)."""
+    return (
+        db.query(models.AgreementAnalysisAnnotation, models.User.username)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .join(models.User, models.AgreementAnalysisAnnotation.annotator_id == models.User.id)
+        .filter(models.ChatMessage.chat_room_id == chat_room_id)
+        .all()
+    )
+
+
+def upsert_agreement_analysis_annotation(
+    db: Session,
+    message_id: int,
+    annotator_id: int,
+    project_id: int,
+    payload: schemas.AgreementAnalysisAnnotationCreate,
+) -> models.AgreementAnalysisAnnotation:
+    """
+    Create or update the agreement-analysis decision for a (message, annotator) pair.
+
+    A ``none`` decision clears the marker fields, so a turn switched back to
+    "not marked" keeps no stale marker data.
+
+    The frontend saves on every click, so two saves for the same new turn can
+    both miss the existing row; the one that loses the race hits the unique
+    constraint and is applied as an update instead.
+    """
+    is_marked = payload.form != "none"
+    fields = {
+        "form": payload.form,
+        "marker_check": payload.marker_check if is_marked else None,
+        "marker_span": payload.marker_span.strip() if is_marked else "",
+        "borderline": payload.borderline if is_marked else False,
+        "multiform": payload.multiform if is_marked else False,
+    }
+
+    existing = get_agreement_analysis_for_message_by_annotator(db, message_id, annotator_id)
+    if existing is None:
+        annotation = models.AgreementAnalysisAnnotation(
+            message_id=message_id,
+            annotator_id=annotator_id,
+            project_id=project_id,
+            **fields,
+        )
+        db.add(annotation)
+        try:
+            db.commit()
+            db.refresh(annotation)
+            return annotation
+        except IntegrityError:
+            db.rollback()
+            existing = get_agreement_analysis_for_message_by_annotator(db, message_id, annotator_id)
+
+    for name, value in fields.items():
+        setattr(existing, name, value)
+    db.commit()
+    db.refresh(existing)
+    return existing
+
+
+def finish_agreement_analysis_room(
+    db: Session, chat_room_id: int, project_id: int, annotator_id: int
+) -> int:
+    """
+    Finish a room for an annotator: every turn without a decision is saved as
+    ``none`` and the room is marked as completed, in a single transaction.
+
+    Annotators therefore only need to mark the agreement/disagreement-form
+    turns themselves.
+
+    Args:
+        db: Active database session.
+        chat_room_id: ID of the chat room (already checked to belong to the project).
+        project_id: ID of the parent project.
+        annotator_id: ID of the annotator finishing the room.
+
+    Returns:
+        The number of turns saved as ``none``.
+
+    Raises:
+        HTTPException: 409 if a marked turn still lacks its marker check or
+            cited span, or if the room changed while it was being finished.
+    """
+    rows = (
+        db.query(models.AgreementAnalysisAnnotation, models.ChatMessage.turn_id)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .filter(
+            models.ChatMessage.chat_room_id == chat_room_id,
+            models.AgreementAnalysisAnnotation.annotator_id == annotator_id,
+        )
+        .order_by(models.ChatMessage.id)
+        .all()
+    )
+    incomplete_turns = [turn_id for annotation, turn_id in rows if not is_agreement_annotation_complete(annotation)]
+    if incomplete_turns:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Complete the marked turns first (marker check or cited span missing): "
+                f"turn {', '.join(incomplete_turns)}"
+            ),
+        )
+
+    decided_message_ids = {annotation.message_id for annotation, _ in rows}
+    undecided_message_ids = [
+        message_id
+        for (message_id,) in db.query(models.ChatMessage.id).filter(models.ChatMessage.chat_room_id == chat_room_id)
+        if message_id not in decided_message_ids
+    ]
+    db.add_all([
+        models.AgreementAnalysisAnnotation(
+            message_id=message_id, annotator_id=annotator_id, project_id=project_id, form="none"
+        )
+        for message_id in undecided_message_ids
+    ])
+
+    completion = get_chat_room_completion(db, chat_room_id, annotator_id)
+    if completion:
+        completion.is_completed = True
+    else:
+        db.add(models.ChatRoomCompletion(
+            chat_room_id=chat_room_id, annotator_id=annotator_id, project_id=project_id, is_completed=True
+        ))
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # A turn was saved by another request in the meantime.
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="The room changed while it was being finished; please try again."
+        ) from None
+    return len(undecided_message_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -1751,6 +1947,174 @@ def _get_question_analysis_iaa(
     )
 
 
+def _calculate_agreement_analysis_iaa(annotations_a: dict, annotations_b: dict) -> dict:
+    """
+    Calculate the agreement-analysis IAA between two annotators.
+
+    ``annotations_a`` / ``annotations_b`` map ``message_id`` to
+    ``(form, marker_check, borderline, multiform)`` for the turns each
+    annotator has completed.  Only turns completed by BOTH are compared.
+
+    Components (percentages are 0–100):
+    - ``form_accuracy``: same form label (agreement-form / disagreement-form /
+      none) over all common turns.
+    - ``form_kappa``: Cohen's κ on the same labels; ``None`` when undefined
+      (both annotators used one identical category throughout, so the
+      expected agreement is 1).
+    - ``marker_agreement``: same marker check, over turns both marked with the
+      same form.
+    - ``clarity_agreement`` / ``multiform_agreement``: same flag, over turns
+      both marked.  Unlike question analysis, unmarked turns are left out:
+      their flags are always false and would inflate the agreement.
+    - ``combined_iaa``: mean of the percentage components that are defined;
+      a component with no turns to compare is ``None``.
+
+    Returns:
+        Dict with the components above plus ``common_message_count`` and
+        ``marked_in_common_count``.
+    """
+    common_ids = sorted(set(annotations_a) & set(annotations_b))
+    n = len(common_ids)
+    if n == 0:
+        return {
+            "form_accuracy": 0.0,
+            "form_kappa": None,
+            "marker_agreement": None,
+            "clarity_agreement": None,
+            "multiform_agreement": None,
+            "combined_iaa": 0.0,
+            "common_message_count": 0,
+            "marked_in_common_count": 0,
+        }
+
+    forms_a = [annotations_a[mid][0] for mid in common_ids]
+    forms_b = [annotations_b[mid][0] for mid in common_ids]
+    observed = sum(1 for a, b in zip(forms_a, forms_b, strict=True) if a == b) / n
+    form_accuracy = observed * 100
+
+    # Cohen's κ = (p_o − p_e) / (1 − p_e), where p_e is the chance agreement
+    # given each annotator's own label distribution.
+    expected = sum(forms_a.count(form) * forms_b.count(form) for form in set(forms_a) | set(forms_b)) / (n * n)
+    form_kappa = None if expected == 1 else (observed - expected) / (1 - expected)
+
+    both_marked = [mid for mid in common_ids if annotations_a[mid][0] != "none" and annotations_b[mid][0] != "none"]
+    same_form = [mid for mid in both_marked if annotations_a[mid][0] == annotations_b[mid][0]]
+
+    marker_agreement = (
+        sum(1 for mid in same_form if annotations_a[mid][1] == annotations_b[mid][1]) / len(same_form) * 100
+        if same_form else None
+    )
+    clarity_agreement = (
+        sum(1 for mid in both_marked if annotations_a[mid][2] == annotations_b[mid][2]) / len(both_marked) * 100
+        if both_marked else None
+    )
+    multiform_agreement = (
+        sum(1 for mid in both_marked if annotations_a[mid][3] == annotations_b[mid][3]) / len(both_marked) * 100
+        if both_marked else None
+    )
+
+    defined = [
+        value for value in (form_accuracy, marker_agreement, clarity_agreement, multiform_agreement)
+        if value is not None
+    ]
+    return {
+        "form_accuracy": form_accuracy,
+        "form_kappa": form_kappa,
+        "marker_agreement": marker_agreement,
+        "clarity_agreement": clarity_agreement,
+        "multiform_agreement": multiform_agreement,
+        "combined_iaa": sum(defined) / len(defined),
+        "common_message_count": n,
+        "marked_in_common_count": len(both_marked),
+    }
+
+
+def _get_agreement_analysis_iaa(
+    db: Session,
+    chat_room_id: int,
+    chat_room,
+    assigned_users: list,
+    message_count: int,
+) -> schemas.ChatRoomIAA:
+    """
+    IAA calculation for agreement_analysis projects.
+
+    Same completion rule as question analysis, but counting only complete
+    decisions (see ``is_agreement_annotation_complete``): an annotator is
+    "completed" once every turn in the room has a complete decision, which
+    "Finish room" guarantees.
+    """
+    total_assigned = len(assigned_users)
+
+    rows = (
+        db.query(models.AgreementAnalysisAnnotation, models.User.username)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .join(models.User, models.AgreementAnalysisAnnotation.annotator_id == models.User.id)
+        .filter(models.ChatMessage.chat_room_id == chat_room_id)
+        .all()
+    )
+
+    annotator_data: dict = {}
+    for annotation, username in rows:
+        bucket = annotator_data.setdefault(annotation.annotator_id, {"username": username, "annotations": {}})
+        if is_agreement_annotation_complete(annotation):
+            bucket["annotations"][annotation.message_id] = (
+                annotation.form,
+                annotation.marker_check,
+                bool(annotation.borderline),
+                bool(annotation.multiform),
+            )
+
+    completed_annotators = []
+    pending_annotators = []
+    pending_turns_count = 0
+    for user in assigned_users:
+        completed_turns = len(annotator_data.get(user.id, {}).get("annotations", {}))
+        if completed_turns == message_count:
+            completed_annotators.append(schemas.AnnotatorInfo(id=user.id, username=user.username))
+        else:
+            turns_left = message_count - completed_turns
+            pending_turns_count += turns_left
+            pending_annotators.append(
+                schemas.AnnotatorInfo(id=user.id, username=user.username, pending_turns=turns_left)
+            )
+
+    completed_count = len(completed_annotators)
+    if completed_count < 2:
+        analysis_status = "NotEnoughData"
+    elif completed_count == total_assigned:
+        analysis_status = "Complete"
+    else:
+        analysis_status = "Partial"
+
+    pairwise_results = []
+    if completed_count >= 2:
+        for id1, id2 in combinations([a.id for a in completed_annotators], 2):
+            result = _calculate_agreement_analysis_iaa(
+                annotator_data[id1]["annotations"], annotator_data[id2]["annotations"]
+            )
+            pairwise_results.append(schemas.PairwiseAgreementAnalysisIAA(
+                annotator_1_id=id1,
+                annotator_2_id=id2,
+                annotator_1_username=annotator_data[id1]["username"],
+                annotator_2_username=annotator_data[id2]["username"],
+                **result,
+            ))
+
+    return schemas.ChatRoomIAA(
+        chat_room_id=chat_room_id,
+        chat_room_name=chat_room.name,
+        message_count=message_count,
+        annotation_type="agreement_analysis",
+        analysis_status=analysis_status,
+        total_annotators_assigned=total_assigned,
+        completed_annotators=completed_annotators,
+        pending_annotators=pending_annotators,
+        pending_turns_count=pending_turns_count,
+        pairwise_agreement_analysis_iaa=pairwise_results,
+    )
+
+
 def get_chat_room_iaa_analysis(
     db: Session,
     chat_room_id: int,
@@ -1765,6 +2129,8 @@ def get_chat_room_iaa_analysis(
     - ``"disentanglement"`` — pairwise one-to-one accuracy via the Hungarian
       algorithm.
     - ``"adjacency_pairs"`` — pairwise ``link_f1 × (α + (1-α) × type_acc)``.
+    - ``"question_analysis"`` — see ``_get_question_analysis_iaa``.
+    - ``"agreement_analysis"`` — see ``_get_agreement_analysis_iaa``.
 
     For disentanglement, an annotator is considered "completed" when they have
     annotated every message in the room.  For adjacency pairs, completion is
@@ -1827,6 +2193,15 @@ def get_chat_room_iaa_analysis(
             chat_room_id=chat_room_id,
             chat_room=chat_room,
             project=project,
+            assigned_users=assigned_users,
+            message_count=message_count,
+        )
+
+    if project.annotation_type == "agreement_analysis":
+        return _get_agreement_analysis_iaa(
+            db=db,
+            chat_room_id=chat_room_id,
+            chat_room=chat_room,
             assigned_users=assigned_users,
             message_count=message_count,
         )
@@ -2426,6 +2801,132 @@ def export_question_analysis_data(db: Session, chat_room_id: int) -> dict:
             "annotation_coverage": (
                 round(annotated_messages / total_messages * 100, 1) if total_messages > 0 else 0
             ),
+            "annotator_coverage": annotator_coverage,
+        },
+        "data": {"messages": []},
+    }
+
+    for message in messages:
+        export_data["data"]["messages"].append({
+            "id": message.id,
+            "turn_id": message.turn_id,
+            "user_id": message.user_id,
+            "turn_text": message.turn_text,
+            "reply_to_turn": message.reply_to_turn,
+            "created_at": message.created_at.isoformat(),
+            "annotations": annotations_by_message.get(message.id, []),
+        })
+
+    return export_data
+
+
+def export_agreement_analysis_data(db: Session, chat_room_id: int) -> dict:
+    """
+    Export all agreement-analysis annotations from a chat room as a structured dict.
+
+    Every message is included with one ``annotations`` entry per annotator who
+    decided it, including ``none`` decisions.  ``clarity`` uses the rubric's
+    terms (``clear`` / ``borderline``) and ``complete`` flags marked turns that
+    still lack a marker check or cited span.
+
+    Completion counts only assigned annotators whose every turn has a complete
+    decision: ``"COMPLETE"`` when all of them, ``"PARTIAL"`` when at least 2,
+    otherwise ``"INSUFFICIENT"``.
+
+    Args:
+        db: Active database session.
+        chat_room_id: ID of the chat room to export.
+
+    Returns:
+        A nested dict with keys ``"export_metadata"`` and ``"data"``
+        (containing a ``"messages"`` list).
+
+    Raises:
+        HTTPException: 404 if the chat room does not exist.
+    """
+    chat_room = get_chat_room(db, chat_room_id)
+    if not chat_room:
+        raise HTTPException(status_code=404, detail="Chat room not found")
+
+    messages = db.query(models.ChatMessage).filter(
+        models.ChatMessage.chat_room_id == chat_room_id
+    ).order_by(models.ChatMessage.id).all()
+
+    annotations_query = (
+        db.query(models.AgreementAnalysisAnnotation, models.User.username)
+        .join(models.ChatMessage, models.AgreementAnalysisAnnotation.message_id == models.ChatMessage.id)
+        .join(models.User, models.AgreementAnalysisAnnotation.annotator_id == models.User.id)
+        .filter(models.ChatMessage.chat_room_id == chat_room_id)
+        .order_by(models.ChatMessage.id, models.AgreementAnalysisAnnotation.annotator_id)
+        .all()
+    )
+
+    annotations_by_message: dict = {}
+    completed_turns_by_annotator: dict = {}
+    for ann, username in annotations_query:
+        complete = is_agreement_annotation_complete(ann)
+        annotations_by_message.setdefault(ann.message_id, []).append({
+            "id": ann.id,
+            "annotator_username": username,
+            "form": ann.form,
+            "marker_check": ann.marker_check,
+            "marker_span": ann.marker_span,
+            "clarity": "borderline" if ann.borderline else "clear",
+            "multiform": bool(ann.multiform),
+            "complete": complete,
+            "created_at": ann.created_at.isoformat(),
+            "updated_at": ann.updated_at.isoformat() if ann.updated_at else None,
+        })
+        if complete:
+            completed_turns_by_annotator.setdefault(ann.annotator_id, set()).add(ann.message_id)
+
+    assigned_users = (
+        db.query(models.User)
+        .join(models.ProjectAssignment, models.User.id == models.ProjectAssignment.user_id)
+        .filter(models.ProjectAssignment.project_id == chat_room.project_id)
+        .order_by(models.User.username)
+        .all()
+    )
+
+    total_messages = len(messages)
+    total_annotators = len(assigned_users)
+    completed_annotators = sum(
+        1 for user in assigned_users
+        if len(completed_turns_by_annotator.get(user.id, set())) == total_messages
+    )
+    completion_percentage = (completed_annotators / total_annotators * 100) if total_annotators > 0 else 0
+
+    if completed_annotators == total_annotators and total_annotators > 0:
+        completion_status = "COMPLETE"
+    elif completed_annotators >= 2:
+        completion_status = "PARTIAL"
+    else:
+        completion_status = "INSUFFICIENT"
+
+    annotator_coverage = [
+        {
+            "annotator_username": user.username,
+            "completed_count": len(completed_turns_by_annotator.get(user.id, set())),
+            "coverage_percentage": (
+                round(len(completed_turns_by_annotator.get(user.id, set())) / total_messages * 100, 1)
+                if total_messages > 0 else 0
+            ),
+        }
+        for user in assigned_users
+    ]
+
+    export_data = {
+        "export_metadata": {
+            "chat_room_id": chat_room.id,
+            "chat_room_name": chat_room.name,
+            "project_id": chat_room.project_id,
+            "annotation_type": "agreement_analysis",
+            "export_timestamp": datetime.now().isoformat(),
+            "completion_status": completion_status,
+            "completion_percentage": round(completion_percentage, 1),
+            "total_annotators": total_annotators,
+            "completed_annotators": completed_annotators,
+            "total_messages": total_messages,
             "annotator_coverage": annotator_coverage,
         },
         "data": {"messages": []},

@@ -12,11 +12,13 @@ Sub-modules:
 - ``projects``        — annotator-facing project, room, message, completion routes
 - ``annotations``     — per-message disentanglement annotation CRUD
 - ``adjacency_pairs`` — adjacency-pair CRUD and CSV import
+- ``agreement_analysis`` — agreement/disagreement-form annotation CRUD and "finish room"
 """
 from fastapi import APIRouter
 from . import auth, admin, projects
 from .annotations import message_annotation_router, project_annotation_router
 from .adjacency_pairs import router as adjacency_pairs_router
+from .agreement_analysis import router as agreement_analysis_router
 
 # Composite router — mirrors the structure used in main.py; can be mounted
 # wholesale in integration tests with a single ``app.include_router(api_router)``.
@@ -28,12 +30,14 @@ api_router.include_router(projects.router, prefix="/projects", tags=["projects",
 api_router.include_router(message_annotation_router, tags=["annotations"])
 api_router.include_router(project_annotation_router, tags=["annotations"])
 api_router.include_router(adjacency_pairs_router, tags=["adjacency pairs"])
+api_router.include_router(agreement_analysis_router, tags=["agreement analysis"])
 
 __all__ = [
-    "auth", 
-    "admin", 
-    "projects", 
+    "auth",
+    "admin",
+    "projects",
     "message_annotation_router",
     "project_annotation_router",
     "adjacency_pairs_router",
-] 
+    "agreement_analysis_router",
+]

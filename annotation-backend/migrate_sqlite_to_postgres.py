@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Base, User, Project, ProjectAssignment, ChatRoom, ChatMessage,
     Annotation, AdjacencyPair, MessageReadStatus, ChatRoomCompletion,
+    AgreementAnalysisAnnotation,
 )
 
 # Tables in dependency order (parents before children)
@@ -25,6 +26,7 @@ MODELS = [
     AdjacencyPair,
     MessageReadStatus,
     ChatRoomCompletion,
+    AgreementAnalysisAnnotation,
 ]
 
 
