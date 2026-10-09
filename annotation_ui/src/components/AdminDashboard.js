@@ -287,6 +287,7 @@ const AdminDashboard = () => {
                   <option value="disentanglement">Chat Disentanglement</option>
                   <option value="adjacency_pairs">Adjacency Pairs</option>
                   <option value="question_analysis">Question Analysis</option>
+                  <option value="agreement_analysis">Agreement Analysis</option>
                 </select>
                 <textarea
                   placeholder="A brief description of the project"

@@ -12,6 +12,10 @@
  *   inline; saving persists it to the project record via `updateProject` and
  *   re-fetches the IAA to show the updated matrix.
  *
+ * - **Question / agreement analysis**: renders the combined IAA matrix; for
+ *   agreement analysis a "Pairwise details" table also lists every component
+ *   and the Cohen's κ of the form label.
+ *
  * A status banner (Complete / Partial / NotEnoughData / Error) explains the
  * current analysis quality.
  */
@@ -37,6 +41,12 @@ const VIEW_DESCRIPTIONS = {
     link_f1:       () => '2 × |agreed links| / (|links A| + |links B|) — ignores relation type',
     type_accuracy: () => 'Proportion of agreed links where both annotators chose the same relation type',
 };
+
+/** Format a 0–100 agreement component; `null` means there were no turns to compare. */
+const formatPercent = (value) => (value === null || value === undefined ? '—' : `${value.toFixed(1)}%`);
+
+/** Format Cohen's κ; `null` means it is undefined for this pair. */
+const formatKappa = (value) => (value === null || value === undefined ? 'n/a' : value.toFixed(3));
 
 /**
  * IAA analysis page showing pairwise agreement matrices for a chat room.
@@ -144,6 +154,7 @@ const AnnotationAnalysisPage = () => {
 
     const isAdjPairs = iaaData?.annotation_type === 'adjacency_pairs';
     const isQuestionAnalysis = iaaData?.annotation_type === 'question_analysis';
+    const isAgreementAnalysis = iaaData?.annotation_type === 'agreement_analysis';
 
     const calculateAverageAgreement = () => {
         if (isAdjPairs) {
@@ -156,6 +167,11 @@ const AnnotationAnalysisPage = () => {
             if (!iaaData?.pairwise_question_analysis_iaa?.length) return null;
             const sum = iaaData.pairwise_question_analysis_iaa.reduce((acc, p) => acc + p.combined_iaa, 0);
             return (sum / iaaData.pairwise_question_analysis_iaa.length).toFixed(1);
+        }
+        if (isAgreementAnalysis) {
+            if (!iaaData?.pairwise_agreement_analysis_iaa?.length) return null;
+            const sum = iaaData.pairwise_agreement_analysis_iaa.reduce((acc, p) => acc + p.combined_iaa, 0);
+            return (sum / iaaData.pairwise_agreement_analysis_iaa.length).toFixed(1);
         }
         if (!iaaData?.pairwise_accuracies?.length) return null;
         const sum = iaaData.pairwise_accuracies.reduce((acc, p) => acc + p.accuracy, 0);
@@ -228,11 +244,22 @@ const AnnotationAnalysisPage = () => {
     const averageAgreement = calculateAverageAgreement();
     const adjPairsAccuracies = isAdjPairs ? buildAdjPairsAccuracies() : [];
     const questionAnalysisAccuracies = isQuestionAnalysis ? buildQuestionAnalysisAccuracies() : [];
+    // The matrix shows the combined IAA; the components are in the details table.
+    const agreementPairs = isAgreementAnalysis ? (iaaData.pairwise_agreement_analysis_iaa || []) : [];
+    const agreementAccuracies = agreementPairs.map(p => ({
+        annotator_1_id: p.annotator_1_id,
+        annotator_2_id: p.annotator_2_id,
+        annotator_1_username: p.annotator_1_username,
+        annotator_2_username: p.annotator_2_username,
+        accuracy: p.combined_iaa,
+    }));
     const hasMatrix = isAdjPairs
         ? adjPairsAccuracies.length > 0
         : isQuestionAnalysis
             ? questionAnalysisAccuracies.length > 0
-            : iaaData.pairwise_accuracies.length > 0;
+            : isAgreementAnalysis
+                ? agreementAccuracies.length > 0
+                : iaaData.pairwise_accuracies.length > 0;
 
     // No estado InProgress os completed_annotators estão vazios; derivar da lista de pares
     const matrixAnnotators = (() => {
@@ -242,7 +269,9 @@ const AnnotationAnalysisPage = () => {
             ? (iaaData.pairwise_adj_iaa || [])
             : isQuestionAnalysis
                 ? (iaaData.pairwise_question_analysis_iaa || [])
-                : iaaData.pairwise_accuracies;
+                : isAgreementAnalysis
+                    ? agreementPairs
+                    : iaaData.pairwise_accuracies;
         pairs.forEach(p => {
             if (!seen.has(p.annotator_1_id)) seen.set(p.annotator_1_id, { id: p.annotator_1_id, username: p.annotator_1_username });
             if (!seen.has(p.annotator_2_id)) seen.set(p.annotator_2_id, { id: p.annotator_2_id, username: p.annotator_2_username });
@@ -379,14 +408,18 @@ const AnnotationAnalysisPage = () => {
                                     ? VIEW_LABELS[viewMode]
                                     : isQuestionAnalysis
                                         ? 'Question-Analysis Combined IAA'
-                                        : 'One-to-One Agreement'} Matrix
+                                        : isAgreementAnalysis
+                                            ? 'Agreement-Analysis Combined IAA'
+                                            : 'One-to-One Agreement'} Matrix
                             </h2>
                             <p className="matrix-description">
                                 {isAdjPairs
                                     ? VIEW_DESCRIPTIONS[viewMode](iaaData.iaa_alpha)
                                     : isQuestionAnalysis
                                         ? 'Unweighted mean of label one-to-one accuracy plus per-flag agreement (trigger_marker, borderline, multiform). Higher is better.'
-                                        : 'Pairwise agreement scores between annotators. Higher percentages indicate better agreement.'}
+                                        : isAgreementAnalysis
+                                            ? 'Mean of form, marker-check, clarity and multi-form agreement over the turns both annotators finished (components with no turns to compare are left out). Higher is better.'
+                                            : 'Pairwise agreement scores between annotators. Higher percentages indicate better agreement.'}
                             </p>
                         </div>
                         {isAdjPairs && (
@@ -399,6 +432,7 @@ const AnnotationAnalysisPage = () => {
                         pairwiseAccuracies={
                             isAdjPairs ? adjPairsAccuracies
                             : isQuestionAnalysis ? questionAnalysisAccuracies
+                            : isAgreementAnalysis ? agreementAccuracies
                             : iaaData.pairwise_accuracies
                         }
                         annotators={matrixAnnotators}
@@ -408,13 +442,61 @@ const AnnotationAnalysisPage = () => {
                 </div>
             )}
 
+            {/* Pairwise components — agreement analysis only */}
+            {isAgreementAnalysis && agreementPairs.length > 0 && (
+                <div className="matrix-section">
+                    <h2>Pairwise details</h2>
+                    <p className="matrix-description">
+                        Form: agreement-form / disagreement-form / not marked, over the turns both annotators
+                        finished. Marker: same rubric check, over turns both marked with the same form. Clarity and
+                        multi-form: over turns both marked. — means there were no turns to compare.
+                    </p>
+                    <div className="pairwise-details-wrapper">
+                        <table className="pairwise-details-table">
+                            <thead>
+                                <tr>
+                                    <th>Annotators</th>
+                                    <th>Form</th>
+                                    <th>Form κ</th>
+                                    <th>Marker</th>
+                                    <th>Clarity</th>
+                                    <th>Multi-form</th>
+                                    <th>Combined</th>
+                                    <th>Turns compared</th>
+                                    <th>Both marked</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {agreementPairs.map(p => (
+                                    <tr key={`${p.annotator_1_id}-${p.annotator_2_id}`}>
+                                        <td>{p.annotator_1_username} × {p.annotator_2_username}</td>
+                                        <td>{formatPercent(p.form_accuracy)}</td>
+                                        <td>{formatKappa(p.form_kappa)}</td>
+                                        <td>{formatPercent(p.marker_agreement)}</td>
+                                        <td>{formatPercent(p.clarity_agreement)}</td>
+                                        <td>{formatPercent(p.multiform_agreement)}</td>
+                                        <td><strong>{formatPercent(p.combined_iaa)}</strong></td>
+                                        <td>{p.common_message_count}</td>
+                                        <td>{p.marked_in_common_count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
             {/* No data */}
             {!hasMatrix && (
                 <div className="no-analysis">
                     <h2>No Analysis Available</h2>
                     <p>
                         Inter-annotator agreement analysis requires at least 2 annotators to have
-                        {isAdjPairs ? ' marked this chat room as completed.' : ' annotated all turns.'}
+                        {isAdjPairs
+                            ? ' marked this chat room as completed.'
+                            : isAgreementAnalysis
+                                ? ' finished this chat room (every turn decided).'
+                                : ' annotated all turns.'}
                     </p>
                     <div className="current-status">
                         <p><strong>Current Status:</strong></p>

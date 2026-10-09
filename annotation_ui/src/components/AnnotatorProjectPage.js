@@ -129,6 +129,7 @@ const AnnotatorProjectPage = () => {
                     Annotation Type: {
                         project.annotation_type === 'adjacency_pairs' ? 'Adjacency Pairs'
                         : project.annotation_type === 'question_analysis' ? 'Question Analysis'
+                        : project.annotation_type === 'agreement_analysis' ? 'Agreement Analysis'
                         : 'Chat Disentanglement'
                     }
                 </p>

@@ -26,7 +26,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { projects as projectsApi, users as usersApi, annotations as annotationsApi, adjacencyPairs as adjacencyPairsApi, questionAnalysis as questionAnalysisApi } from '../utils/api';
+import { projects as projectsApi, users as usersApi, annotations as annotationsApi, adjacencyPairs as adjacencyPairsApi, questionAnalysis as questionAnalysisApi, agreementAnalysis as agreementAnalysisApi } from '../utils/api';
 import ErrorMessage from './ErrorMessage';
 import Modal from './Modal';
 import ConfirmationModal from './ConfirmationModal';
@@ -140,6 +140,15 @@ const AdminProjectPage = () => {
                         completedAnnotators: iaaData.completed_annotators.length,
                         totalAnnotators: iaaData.total_annotators_assigned,
                         averageAgreement: calculateAverageQuestionAnalysisIAA(iaaData.pairwise_question_analysis_iaa),
+                        canAnalyze: iaaData.total_annotators_assigned > 0,
+                    };
+                } else if (projectData?.annotation_type === 'agreement_analysis') {
+                    analytics[room.id] = {
+                        status: iaaData.analysis_status,
+                        completedAnnotators: iaaData.completed_annotators.length,
+                        totalAnnotators: iaaData.total_annotators_assigned,
+                        // Same 0–100 combined_iaa scale as question analysis.
+                        averageAgreement: calculateAverageQuestionAnalysisIAA(iaaData.pairwise_agreement_analysis_iaa),
                         canAnalyze: iaaData.total_annotators_assigned > 0,
                     };
                 } else {
@@ -412,6 +421,35 @@ const AdminProjectPage = () => {
             return;
         }
 
+        if (project.annotation_type === 'agreement_analysis') {
+            const doExportAgreement = async () => {
+                await agreementAnalysisApi.exportChatRoomJson(chatRoomId);
+                const label = analytics?.status === 'Complete' ? 'Complete'
+                    : analytics?.status === 'Partial' ? 'Partial' : 'Insufficient';
+                addToast(`Agreement-analysis data exported (${label}).`,
+                    analytics?.status === 'Complete' ? 'success' : 'warning');
+            };
+
+            if (analytics?.status === 'Partial') {
+                openConfirm(
+                    'Export Partial Data',
+                    `This chat room is only partially annotated (${analytics.completedAnnotators}/${analytics.totalAnnotators} annotators finished). Proceed?`,
+                    doExportAgreement,
+                    { type: 'warning', confirmText: 'Export Anyway' }
+                );
+            } else if (analytics?.status === 'NotEnoughData') {
+                openConfirm(
+                    'Export Insufficient Data',
+                    'This chat room has insufficient annotation data (less than 2 annotators finished). Proceed?',
+                    doExportAgreement,
+                    { type: 'warning', confirmText: 'Export Anyway' }
+                );
+            } else {
+                try { await doExportAgreement(); } catch (err) { setError(err.message || 'Failed to export agreement-analysis data.'); }
+            }
+            return;
+        }
+
         const doExport = async () => {
             await annotationsApi.exportChatRoom(chatRoomId);
             const label = analytics.status === 'Complete' ? 'Complete' : analytics.status === 'Partial' ? 'Partial' : 'Insufficient';
@@ -434,6 +472,21 @@ const AdminProjectPage = () => {
             );
         } else {
             try { await doExport(); } catch (err) { setError(err.message || 'Failed to export chat room data.'); }
+        }
+    };
+
+    /**
+     * Download the agreement-analysis record table (marked turns only) as a
+     * ZIP with one CSV per assigned annotator.
+     * @param {number} chatRoomId
+     */
+    const handleExportAgreementCsv = async (chatRoomId) => {
+        setError(null);
+        try {
+            await agreementAnalysisApi.exportChatRoomCsv(chatRoomId);
+            addToast('Agreement-analysis CSV exported (one file per annotator).', 'success');
+        } catch (err) {
+            setError(err.message || 'Failed to export agreement-analysis CSV.');
         }
     };
 
@@ -606,6 +659,7 @@ const AdminProjectPage = () => {
                     <div><strong>Annotation Type:</strong> {
                         project.annotation_type === 'adjacency_pairs' ? 'Adjacency Pairs'
                         : project.annotation_type === 'question_analysis' ? 'Question Analysis'
+                        : project.annotation_type === 'agreement_analysis' ? 'Agreement Analysis'
                         : 'Chat Disentanglement'
                     }</div>
                 </div>
@@ -765,8 +819,18 @@ const AdminProjectPage = () => {
                                                         className="action-button export-button"
                                                         disabled={project.annotation_type !== 'adjacency_pairs' && !chatRoomAnalytics[room.id]?.canAnalyze}
                                                     >
-                                                        Export
+                                                        {project.annotation_type === 'agreement_analysis' ? 'Export JSON' : 'Export'}
                                                     </button>
+                                                    {project.annotation_type === 'agreement_analysis' && (
+                                                        <button
+                                                            onClick={() => handleExportAgreementCsv(room.id)}
+                                                            className="action-button export-button"
+                                                            disabled={!chatRoomAnalytics[room.id]?.canAnalyze}
+                                                            title="Rubric record table (marked turns), one CSV per annotator"
+                                                        >
+                                                            Export CSV
+                                                        </button>
+                                                    )}
                                                     <button onClick={() => handleDeleteChatRoom(room.id, room.name)} className="action-button delete">Delete</button>
                                                 </div>
                                             </td>
@@ -778,7 +842,7 @@ const AdminProjectPage = () => {
                     </div>
                 )}
 
-                {chatRooms.length > 0 && (project.annotation_type === 'disentanglement' || project.annotation_type === 'question_analysis') && (
+                {chatRooms.length > 0 && ['disentanglement', 'question_analysis', 'agreement_analysis'].includes(project.annotation_type) && (
                     <div className="status-legend">
                         <h4>Status Legend:</h4>
                         <div className="legend-items">
