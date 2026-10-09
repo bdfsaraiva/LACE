@@ -19,6 +19,8 @@ The **Admin Dashboard** opens automatically for admin accounts.
 3. Choose the **annotation type**:
     - **Disentanglement** — annotators group turns into threads.
     - **Adjacency Pairs** — annotators draw typed directed links between turns.
+    - **Question Analysis** — annotators mark question-form turns ([rubric](../question-analysis-rubric.md)).
+    - **Agreement Analysis** — annotators mark agreement/disagreement-form turns ([rubric](../agreement-analysis-rubric.md)).
 4. If you chose *Adjacency Pairs*, define the **relation types** (e.g. `question/answer`, `request/compliance`). These labels are presented to annotators as a dropdown when creating a link.
 5. Click **Create**.
 
