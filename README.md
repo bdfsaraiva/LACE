@@ -66,6 +66,8 @@ docker compose up -d --build
 
 nginx serves the frontend on port 80 and proxies `/api/*` to the backend, which is not published directly.
 
+For a single-container deployment (frontend and API on one port, external PostgreSQL), build the root `Dockerfile`; the production instance runs this way on the DEISI platform with a Neon database, see [DEISI Platform Deployment](docs/development/deisi-deployment.md).
+
 ---
 
 ## Local Development

@@ -24,7 +24,7 @@ The diagram below shows the application map — screens, user roles, and navigat
 | HTTP client | Axios with interceptors |
 | Routing | React Router v6 |
 
-The SPA is compiled to static assets and served by Nginx (Docker) or `vite preview` (development). Two workspaces are provided:
+The SPA is compiled to static assets and served by Nginx (Docker Compose), by FastAPI (single-container image, see [DEISI Platform Deployment](deisi-deployment.md)) or `vite preview` (development). Two workspaces are provided:
 
 - **Admin Dashboard** — project creation, user management, CSV import with row-level preview, JSON/ZIP export, IAA pairwise matrix viewer, per-turn annotator-status overlay in the room view (thread assignments for disentanglement; read/unread state for adjacency pairs).
 - **Annotation Interface** — chat-style view for disentanglement (thread colour assignment) or adjacency pair drawing (drag/right-click directed links).
@@ -156,3 +156,7 @@ conversion_tools/     # Excel/CSV batch-import utilities
 ```
 
 Nginx terminates TLS and reverse-proxies `/api/*` to the backend container. Alembic migrations run automatically at container start via `entrypoint.sh` before Uvicorn launches.
+
+### Single-container image
+
+The production deployment on the DEISI platform allows one container per application, so the root `Dockerfile` builds the SPA and serves it from FastAPI: `app/site.py` mounts the API under `/api` and answers every other path with the static build (`index.html` for client-side routes). The database is external (Neon). See [DEISI Platform Deployment](deisi-deployment.md).

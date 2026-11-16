@@ -10,6 +10,8 @@ on:
 
 jobs:
   deploy:
+    # The docs are published from the public repo, not the deisi-org mirror.
+    if: github.repository_owner != 'deisi-org'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

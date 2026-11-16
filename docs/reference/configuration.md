@@ -22,7 +22,7 @@ LACE is configured via environment variables. Copy `.env.example` to `.env` at t
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token lifetime in minutes |
 | `SESSION_EXPIRE_MINUTES` | `60` | Absolute session length in minutes, counted from login or the last **Renew session**. Routine token refreshes do not extend it; the UI warns 2 minutes before the end, saves pending work and signs the user out. Replaces `REFRESH_TOKEN_EXPIRE_DAYS`. |
 | `CORS_ORIGINS` | `["http://localhost:3721"]` | JSON array of allowed CORS origins |
-| `API_URL` | `/api` (Docker image), `http://localhost:8000` (`npm start`) | Backend URL as seen by the frontend build; must match the `/api/` proxy location in `annotation_ui/nginx.conf` |
+| `API_URL` | `/api` (Docker images), `http://localhost:8000` (`npm start`) | Backend URL as seen by the frontend build; must match the `/api/` proxy location in `annotation_ui/nginx.conf` and the `/api` mount in `annotation-backend/app/site.py` |
 
 ---
 
@@ -54,6 +54,12 @@ The file is created automatically. In Docker, mount the `data/` directory as a v
 
 ```
 DATABASE_URL=postgresql://user:password@host:5432/dbname
+```
+
+For [Neon](https://neon.com) (used by the [DEISI deployment](../development/deisi-deployment.md)), use the direct connection string and keep its SSL parameters:
+
+```
+DATABASE_URL=postgresql+psycopg2://neondb_owner:password@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 ```
 
 !!! warning

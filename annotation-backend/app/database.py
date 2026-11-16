@@ -25,7 +25,11 @@ if database_url.startswith("sqlite"):
 
 engine = create_engine(
     database_url,
-    connect_args=connect_args
+    connect_args=connect_args,
+    # Neon closes idle connections when its compute scales to zero; pinging
+    # on checkout replaces them instead of failing the first request after
+    # a quiet period.
+    pool_pre_ping=True,
 )
 
 # autocommit=False and autoflush=False are the recommended defaults for

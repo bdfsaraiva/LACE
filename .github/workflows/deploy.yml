@@ -1,0 +1,23 @@
+# Deploys main to the DEISI platform: builds the root Dockerfile, publishes it
+# to GHCR and rolls it out on the university cluster.
+# Guide: https://deisi-management.apps.deisi.ulusofona.pt/deploy/
+# Runtime configuration (DATABASE_URL, SECRET_KEY, ...) comes from the
+# APP_RUNTIME_ENV repository secret; see docs/development/deisi-deployment.md.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    # Only the private mirror in deisi-org can call the platform workflow.
+    if: github.repository_owner == 'deisi-org'
+    uses: deisi-org/platform-orchestrator/.github/workflows/deploy.yml@main
+    with:
+      app_port: "8000"
+    secrets: inherit
