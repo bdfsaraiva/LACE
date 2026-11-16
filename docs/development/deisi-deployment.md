@@ -85,32 +85,28 @@ The repository name becomes the hostname: `deisi-org/lace` is served at
 ### 4. Set the `APP_RUNTIME_ENV` secret
 
 The platform injects this secret into the container as environment variables.
-Write it in `.env` format, one `KEY=value` per line, **without quotes**:
+It uses `.env` format, one `KEY=value` per line, **without quotes**. Start from
+the template at the repository root, which lists every variable with the
+production values:
 
-```
-DATABASE_URL=postgresql+psycopg2://neondb_owner:<password>@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-SECRET_KEY=<output of: python -c "import secrets; print(secrets.token_hex(32))">
-CORS_ORIGINS=["https://lace.apps.deisi.ulusofona.pt"]
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-SESSION_EXPIRE_MINUTES=60
-PASSWORD_MIN_LENGTH=10
-PASSWORD_REQUIRE_DIGIT=true
-PASSWORD_REQUIRE_LETTER=true
-AUTH_RATE_LIMIT_REQUESTS=10
-AUTH_RATE_LIMIT_WINDOW_SECONDS=60
-MAX_UPLOAD_MB=10
-MAX_IMPORT_ROWS=50000
+```bash
+cp app-runtime.env.example app-runtime.env
 ```
 
+Fill in `DATABASE_URL` (the Neon connection string, as shown by Neon) and
+`SECRET_KEY` (`python -c "import secrets; print(secrets.token_hex(32))"`).
 Add `FIRST_ADMIN_USERNAME` / `FIRST_ADMIN_PASSWORD` only when starting from an
-empty database. Store the secret from a local file, then delete the file:
+empty database. Store the secret, then delete the local copy:
 
 ```bash
 gh secret set APP_RUNTIME_ENV -R deisi-org/lace < app-runtime.env
+rm app-runtime.env
 ```
 
-Changing the secret takes effect on the next deploy.
+GitHub never shows a secret's value again; `gh secret list -R deisi-org/lace`
+only shows when it was last updated. To change one value, store the whole file
+again. Changes take effect on the next deploy (or `gh run rerun` of the last
+*Deploy* run); a new `SECRET_KEY` signs every user out.
 
 ### 5. Deploy
 
