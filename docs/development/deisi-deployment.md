@@ -124,8 +124,8 @@ green, open the public URL and check `/api/docs`.
 ## Day-to-day
 
 Every push to `main` of the mirror redeploys. Pushing to the public repository
-does not deploy: its `Deploy` job only runs when the owner is `deisi-org`, and
-`docs.yml` publishes the documentation from the public repository only.
+does not deploy: the *Deploy* workflow is disabled there, and `docs.yml`
+publishes the documentation from the public repository only.
 
 ```bash
 git push origin main   # public repository
@@ -133,9 +133,9 @@ git push deisi main    # deploy
 ```
 
 !!! note
-    GitHub may resolve the private reusable workflow before evaluating the job
-    `if`, which shows up as a failed *Deploy* run in the public repository. If
-    that happens, disable the workflow there (it stays active in the mirror):
+    A job `if` cannot skip the *Deploy* workflow in the public repository:
+    GitHub resolves the private reusable workflow first, so the run fails at
+    startup. It was disabled there with
     `gh workflow disable deploy.yml -R bdfsaraiva/LACE`.
 
 Take periodic backups; the Neon Free plan only keeps a short restore window.
