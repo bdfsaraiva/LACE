@@ -70,7 +70,9 @@ the admin account from `FIRST_ADMIN_USERNAME` / `FIRST_ADMIN_PASSWORD`.
 
 The platform only deploys private repositories in the `deisi-org`
 organisation, while `bdfsaraiva/LACE` is public. Keep the public repository as
-the source and push `main` to a private mirror:
+the source and deploy through a private mirror. The mirror does not carry the
+public history: each deploy is one snapshot commit with the current tree of
+`main`.
 
 ```bash
 gh repo create deisi-org/lace --private
@@ -112,8 +114,10 @@ Changing the secret takes effect on the next deploy.
 
 ### 5. Deploy
 
+The first deploy pushes a snapshot of `main` without a parent:
+
 ```bash
-git push deisi main
+git push deisi "$(git commit-tree 'main^{tree}' -m 'Deploy LACE')":refs/heads/main
 ```
 
 Follow the **Deploy** workflow under *Actions* in `deisi-org/lace`; when it is
@@ -129,7 +133,8 @@ publishes the documentation from the public repository only.
 
 ```bash
 git push origin main   # public repository
-git push deisi main    # deploy
+git fetch deisi        # deploy: snapshot of main on top of the mirror
+git push deisi "$(git commit-tree 'main^{tree}' -p deisi/main -m 'Deploy LACE')":refs/heads/main
 ```
 
 !!! note
