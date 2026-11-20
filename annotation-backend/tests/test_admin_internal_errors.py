@@ -1,11 +1,12 @@
 import io
 import json
 import pytest
+from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 from app.api import admin as admin_api
 from conftest import create_user, create_project, create_chat_room
-from app import crud
+from app import crud, models
 
 
 @pytest.mark.anyio
@@ -76,7 +77,8 @@ def test_admin_update_project_and_delete_chat_room_missing(client, db_session):
 
 
 @pytest.mark.anyio
-async def test_import_chat_room_csv_message_error(monkeypatch, db_session, tmp_path):
+async def test_import_chat_room_csv_insert_error_removes_room(monkeypatch, db_session, tmp_path):
+    """A failed batch insert fails the import and leaves no empty room behind."""
     admin = create_user(db_session, "admin_err4", "pass", is_admin=True)
     project = create_project(db_session, name="proj_err4")
 
@@ -87,12 +89,14 @@ async def test_import_chat_room_csv_message_error(monkeypatch, db_session, tmp_p
     def boom(*args, **kwargs):
         raise Exception("boom")
 
-    monkeypatch.setattr(crud, "create_chat_message", boom)
+    monkeypatch.setattr(crud, "create_chat_messages", boom)
 
-    result = await admin_api.create_chat_room_and_import_csv(
-        project_id=project.id,
-        file=upload,
-        db=db_session,
-        _=admin
-    )
-    assert result.import_details.errors
+    with pytest.raises(HTTPException) as exc_info:
+        await admin_api.create_chat_room_and_import_csv(
+            project_id=project.id,
+            file=upload,
+            db=db_session,
+            _=admin
+        )
+    assert exc_info.value.status_code == 400
+    assert db_session.query(models.ChatRoom).filter_by(project_id=project.id).count() == 0

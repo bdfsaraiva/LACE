@@ -1,6 +1,10 @@
 import json
 
+from sqlalchemy import event
+
+from app import models
 from conftest import (
+    engine,
     create_user,
     create_project,
     create_chat_room,
@@ -95,6 +99,53 @@ def test_admin_import_chat_room_csv_duplicates_and_invalid(client, db_session, t
     )
     assert response.status_code == 200
     assert response.json()["import_details"]["skipped_count"] >= 1
+
+
+def test_admin_import_chat_room_csv_query_count_does_not_grow_with_rows(client, db_session):
+    """The import must not issue database statements per CSV row.
+
+    With a remote database every statement is a network round trip, so a
+    per-row query pattern makes a few hundred turns exceed the client timeout.
+    """
+    create_user(db_session, "admin_csv_q", "pass", is_admin=True)
+    project = create_project(db_session, name="proj_csv_q")
+    headers = auth_headers(client, "admin_csv_q", "pass")
+
+    def count_import_statements(file_name: str, row_count: int) -> int:
+        """Import a generated CSV and return the number of SQL statements run."""
+        rows = "".join(
+            f"T{turn},{turn % 3},turn {turn},{f'T{turn - 1}' if turn > 1 else ''}\n"
+            for turn in range(1, row_count + 1)
+        )
+        csv_content = "turn_id,user_id,turn_text,reply_to_turn\n" + rows
+        statements = []
+
+        def record_statement(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            response = client.post(
+                f"/admin/projects/{project.id}/import-chat-room-csv",
+                files={"file": (file_name, csv_content.encode("utf-8"), "text/csv")},
+                headers=headers
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
+
+        assert response.status_code == 200
+        assert response.json()["import_details"]["imported_count"] == row_count, response.json()
+        return len(statements)
+
+    assert count_import_statements("small.csv", 5) == count_import_statements("large.csv", 60)
+
+    # The batched insert stores every row with its reply link.
+    large_room = db_session.query(models.ChatRoom).filter_by(name="large").one()
+    stored = {m.turn_id: m for m in large_room.messages}
+    assert len(stored) == 60
+    assert stored["T2"].reply_to_turn == "T1"
+    assert stored["T1"].reply_to_turn is None
+    assert stored["T60"].created_at is not None
 
 
 def test_admin_batch_import_validation_errors(client, db_session, tmp_path):

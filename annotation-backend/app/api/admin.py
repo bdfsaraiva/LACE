@@ -473,7 +473,12 @@ async def create_chat_room_and_import_csv(
         skipped_count = 0
         errors = []
         warnings = []
-        
+        # Rows to insert, and their turn_ids.  The room is new, so a duplicate
+        # can only come from an earlier row of the same file; tracking it here
+        # avoids one SELECT per row.
+        new_messages: list[schemas.ChatMessageCreate] = []
+        imported_turns: set[str] = set()
+
         for message in messages:
             try:
                 # Create message schema
@@ -484,9 +489,8 @@ async def create_chat_room_and_import_csv(
                     reply_to_turn=message.get('reply_to_turn')
                 )
                 
-                # Check for existing message
-                existing = crud.get_chat_message_by_turn_id(db, new_chat_room.id, message['turn_id'])
-                if existing:
+                # Check for a duplicate turn_id earlier in the file
+                if message_schema.turn_id in imported_turns:
                     skipped_count += 1
                     warnings.append(f"Message with turn_id {message['turn_id']} already exists")
                     continue
@@ -499,15 +503,16 @@ async def create_chat_room_and_import_csv(
                     )
                     message_schema.reply_to_turn = None
                 
-                # Create message
-                crud.create_chat_message(db, message=message_schema, chat_room_id=new_chat_room.id)
+                new_messages.append(message_schema)
+                imported_turns.add(message_schema.turn_id)
                 imported_count += 1
-                
+
             except Exception as e:
                 errors.append(f"Error importing message {message.get('turn_id', 'unknown')}: {str(e)}")
                 skipped_count += 1
-        
-        # Commit all changes
+
+        # Insert every row in one batch, then commit
+        crud.create_chat_messages(db, messages=new_messages, chat_room_id=new_chat_room.id)
         db.commit()
         
         return schemas.ChatRoomImportResponse(

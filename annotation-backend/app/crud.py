@@ -11,7 +11,7 @@ Functions are grouped by domain:
 - Export — full chat-room data dump.
 """
 from sqlalchemy.orm import Session, Query
-from sqlalchemy import func
+from sqlalchemy import func, insert
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Tuple
 from . import models, schemas
@@ -465,35 +465,28 @@ def get_chat_messages_by_room(
     )
 
 
-def create_chat_message(
-    db: Session, message: schemas.ChatMessageCreate, chat_room_id: int
-) -> models.ChatMessage:
+def create_chat_messages(
+    db: Session, messages: list[schemas.ChatMessageCreate], chat_room_id: int
+) -> None:
     """
-    Insert a single chat message into the database within an open transaction.
+    Insert chat messages with one batched INSERT, without committing.
 
-    Uses ``db.flush()`` so the generated primary key is available immediately
-    without committing the surrounding transaction (allows bulk inserts in one
-    transaction).
+    A CSV import sends all its rows together instead of one round trip per
+    message, which against a remote database (Neon) took longer than the
+    client's request timeout.  The caller commits.
 
     Args:
         db: Active database session.
-        message: Validated message creation payload.
-        chat_room_id: The chat room this message belongs to.
-
-    Returns:
-        The newly created ``ChatMessage`` ORM object (with ``id`` populated).
+        messages: Validated message payloads, all for the same chat room.
+        chat_room_id: The chat room these messages belong to.
     """
-    db_message = models.ChatMessage(
-        turn_id=message.turn_id,
-        user_id=message.user_id,
-        turn_text=message.turn_text,
-        reply_to_turn=message.reply_to_turn,
-        chat_room_id=chat_room_id
+    # An empty parameter list would run a single INSERT without values.
+    if not messages:
+        return
+    db.execute(
+        insert(models.ChatMessage),
+        [{**message.model_dump(), "chat_room_id": chat_room_id} for message in messages]
     )
-    db.add(db_message)
-    db.flush()
-    db.refresh(db_message)
-    return db_message
 
 
 def get_chat_message_by_turn_id(
