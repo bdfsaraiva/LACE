@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     """Maximum size in megabytes for uploaded files."""
     MAX_IMPORT_ROWS: int = 50000
     """Maximum number of data rows accepted in a single CSV/JSON import."""
+    MAX_BATCH_FILES: int = 50
+    """Maximum number of CSV files accepted in one batch chat-room import request."""
+    MAX_BATCH_UPLOAD_MB: int = 50
+    """Maximum combined size in megabytes of the files in one batch import request.
+
+    Keep it below the reverse proxy's body limit (``client_max_body_size`` in
+    ``annotation_ui/nginx.conf``).  The UI splits larger selections into
+    several requests that each respect these limits."""
 
     # Admin user (created on first run)
     FIRST_ADMIN_USERNAME: Optional[str] = None

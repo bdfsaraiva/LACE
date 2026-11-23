@@ -30,14 +30,15 @@ The **Admin Dashboard** opens automatically for admin accounts.
 
 ## 3. Import a Corpus
 
-Each CSV file becomes one **chat room** within the project.
+Each CSV file becomes one **chat room** within the project, named after the file (`room_07.csv` → `room_07`). Room names are unique within a project, so two files with the same name cannot both be imported, and a file named after an existing room is refused.
 
-1. Open the project and click **Import Chat Room**.
-2. Select a CSV file. See [Data Format](../reference/data-format.md) for the expected structure.
-3. LACE parses the file and shows a **row-level preview** — inspect it for malformed rows before committing.
-4. Click **Confirm Import** to write the data to the database.
+1. Open the project and go to **Import Chat Rooms**.
+2. Select one or more CSV files (you can select again to add files from another folder). See [Data Format](../reference/data-format.md) for the expected structure.
+3. The list shows every file with its room name. Files that are not CSV, too large, or whose room name is already taken or repeated are marked **Cannot import** straight away; remove them or rename the file.
+4. Optionally click **Validate** to have the server parse every file without importing anything, and **Rows** to see the first 20 rows of a file.
+5. Click **Import N rooms**. Large selections are sent in several batches, with a progress bar.
 
-Repeat for each room you want to add to the project.
+Files are imported independently: a file that fails creates no room and does not stop the others. The list shows the result of each file, so you can fix the failed ones and import them again.
 
 !!! tip
     A sample CSV is available at [`docs/sample_chat_room.csv`](../sample_chat_room.csv).

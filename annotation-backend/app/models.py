@@ -103,6 +103,10 @@ class ChatRoom(Base):
     """
 
     __tablename__ = "chat_rooms"
+    __table_args__ = (
+        # A room is named after its CSV file; one file, one room per project.
+        Index('uix_chat_room_project_name', 'project_id', 'name', unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)

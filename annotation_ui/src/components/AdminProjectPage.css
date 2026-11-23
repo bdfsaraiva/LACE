@@ -391,6 +391,50 @@
     align-items: center;
 }
 
+.import-csv-hint {
+    margin: -0.5rem 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-color-secondary);
+}
+
+.import-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-color-primary);
+}
+
+.import-progress progress {
+    flex: 1;
+    max-width: 320px;
+}
+
+.import-file-list {
+    margin-top: 0.75rem;
+}
+
+.import-file-list .import-preview-table {
+    max-height: 360px;
+}
+
+.import-item-warnings {
+    font-size: 0.75rem;
+    color: var(--text-color-secondary);
+    cursor: help;
+}
+
+.import-item-actions {
+    white-space: nowrap;
+}
+
+.import-item-actions .action-button.small {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    margin-right: 0.3rem;
+}
+
 .import-preview {
     margin-top: 0.75rem;
     padding: 0.75rem;

@@ -38,7 +38,7 @@ Designed for computational linguistics research requiring rigorous inter-annotat
 | **Chat Disentanglement** | Assign turns to threads using text labels |
 | **Adjacency Pairs** | Draw directed relation links with typed labels via drag or right-click |
 | **Agreement Analysis** | Mark agreement/disagreement-form turns with the triggering marker, cited span, clarity and multi-form flag; "Finish room" saves the rest as not marked |
-| **CSV Import** | Import chat rooms from CSV with preview and validation |
+| **CSV Import** | Import many chat rooms at once, one per CSV file (unique names per project), with validation and per-file results |
 | **JSON/ZIP Export** | Export annotations per room or per annotator |
 | **IAA Analysis** | Pairwise inter-annotator agreement using the Hungarian algorithm |
 | **Dark/Light Mode** | User-selectable theme |
@@ -105,6 +105,8 @@ Copy `.env.example` to `.env` and adjust:
 | `CORS_ORIGINS` | JSON list of allowed origins | `["http://localhost:3721"]` |
 | `API_URL` | Backend URL seen by the frontend (build time) | `/api` in the Docker image; `http://localhost:8000` with `npm start` |
 | `MAX_UPLOAD_MB` | Maximum CSV upload size | `10` |
+| `MAX_BATCH_FILES` | Maximum CSV files per batch import request | `50` |
+| `MAX_BATCH_UPLOAD_MB` | Maximum combined size of one batch import request | `50` |
 
 ---
 
