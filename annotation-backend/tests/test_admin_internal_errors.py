@@ -19,25 +19,25 @@ async def test_import_chat_room_csv_outer_exception(db_session, monkeypatch, tmp
     file_obj = io.BytesIO(csv_content.encode("utf-8"))
     upload = UploadFile(filename="room.csv", file=file_obj)
 
-    # Patch db.commit to raise on second commit (after chat room created)
-    commit_calls = {"count": 0}
-    original_commit = db_session.commit
+    # The room and its messages are committed together; make that commit fail.
+    def failing_commit():
+        raise Exception("boom")
 
-    def commit_wrapper():
-        commit_calls["count"] += 1
-        if commit_calls["count"] >= 2:
-            raise Exception("boom")
-        return original_commit()
+    monkeypatch.setattr(db_session, "commit", failing_commit)
 
-    monkeypatch.setattr(db_session, "commit", commit_wrapper)
-
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException) as exc_info:
         await admin_api.create_chat_room_and_import_csv(
             project_id=project.id,
             file=upload,
             db=db_session,
             _=admin
         )
+    assert exc_info.value.status_code == 400
+
+    # The failed import must not leave the room behind.
+    monkeypatch.undo()
+    db_session.expire_all()
+    assert db_session.query(models.ChatRoom).filter_by(project_id=project.id).count() == 0
 
 
 def test_import_batch_annotations_unexpected_error(client, db_session, monkeypatch):

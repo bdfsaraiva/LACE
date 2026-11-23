@@ -7,8 +7,10 @@
  *   with drag-to-reorder, add, remove, and alphabetic sort.
  * - **User management**: assign annotators from the full user list; remove
  *   them from the project with confirmation.
- * - **Chat room import**: CSV upload with a preview (first 20 rows) before
- *   committing.  Toast notifications report import success.
+ * - **Chat room import**: select one or many CSV files (one room per file,
+ *   named after the file).  Files are checked locally, can be validated on
+ *   the server, and are imported in request-sized batches with per-file
+ *   results; any file's first 20 rows can be previewed.
  * - **Chat room list**: per-room IAA status badges (Complete / Partial /
  *   NotEnoughData / Error); navigate to the admin chat-room view; rename or
  *   delete with confirmation.
@@ -24,13 +26,14 @@
  * component at the top of the page and via the `warningMessage` router state
  * passed from `AdminChatRoomView`.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projects as projectsApi, users as usersApi, annotations as annotationsApi, adjacencyPairs as adjacencyPairsApi, questionAnalysis as questionAnalysisApi, agreementAnalysis as agreementAnalysisApi } from '../utils/api';
 import ErrorMessage from './ErrorMessage';
 import Modal from './Modal';
 import ConfirmationModal from './ConfirmationModal';
 import { useToast } from '../contexts/ToastContext';
+import { DEFAULT_IMPORT_LIMITS, checkSelection, chunkFiles, roomNameFromFilename } from '../utils/batchImport';
 import './AdminProjectPage.css';
 
 /**
@@ -52,9 +55,13 @@ const AdminProjectPage = () => {
     const [importError, setImportError] = useState(null);
     const [previewError, setPreviewError] = useState(null);
     const [importPreview, setImportPreview] = useState(null);
+    // One entry per selected CSV; see handleFileSelect for its fields.
+    const [importItems, setImportItems] = useState([]);
+    const [importLimits, setImportLimits] = useState(DEFAULT_IMPORT_LIMITS);
+    const [importProgress, setImportProgress] = useState(null); // { label, done, total }
+    const importKeyCounter = useRef(0);
     const [isAssigning, setIsAssigning] = useState(false);
     const [userToAssign, setUserToAssign] = useState('');
-    const [selectedFile, setSelectedFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isPreviewing, setIsPreviewing] = useState(false);
     const [relationTypes, setRelationTypes] = useState([]);
@@ -205,6 +212,12 @@ const AdminProjectPage = () => {
     useEffect(() => { fetchData(); }, [fetchData]);
 
     useEffect(() => {
+        projectsApi.getImportLimits()
+            .then(setImportLimits)
+            .catch(() => { /* keep the defaults; the server still enforces its limits */ });
+    }, []);
+
+    useEffect(() => {
         const removeChatRoomId = location.state?.removeChatRoomId;
         const warningMessage = location.state?.warningMessage;
         if (removeChatRoomId) removeChatRoomFromList(removeChatRoomId);
@@ -243,47 +256,176 @@ const AdminProjectPage = () => {
     };
 
     // ── CSV import ────────────────────────────────────────────────────────────
-    const handleFileSelect = (e) => {
-        setSelectedFile(e.target.files[0]);
-        setImportError(null);
-        setPreviewError(null);
-        setImportPreview(null);
+    /**
+     * Status shown for a selected file.  A server result wins once the room is
+     * created; otherwise a local problem (not a CSV, too large, name taken or
+     * repeated) wins over the last server check.
+     */
+    const importItemStatus = (item) => {
+        if (item.serverStatus === 'created') return 'created';
+        if (item.localProblem) return 'invalid';
+        return item.serverStatus || 'ready';
     };
 
-    const handlePreviewCsv = async () => {
-        if (!selectedFile) { setPreviewError('Please select a file to preview.'); return; }
+    /** Re-run the local checks over the files that are not imported yet. */
+    const recheckImportItems = useCallback((items) => {
+        const open = items.filter((item) => item.serverStatus !== 'created');
+        const problems = checkSelection(open.map((item) => item.file), chatRooms.map((room) => room.name), importLimits);
+        const problemByKey = new Map(open.map((item, i) => [item.key, problems[i]]));
+        return items.map((item) => (
+            item.serverStatus === 'created' ? item : { ...item, localProblem: problemByKey.get(item.key) }
+        ));
+    }, [chatRooms, importLimits]);
+
+    // Re-check the selection when the project's rooms or the server limits change
+    // (after an import, a rename or delete, or once the limits have loaded).
+    useEffect(() => {
+        setImportItems((items) => (items.length ? recheckImportItems(items) : items));
+    }, [recheckImportItems]);
+
+    const handleFileSelect = (e) => {
+        const added = Array.from(e.target.files || []).map((file) => ({
+            key: `import-${importKeyCounter.current++}`,
+            file,
+            roomName: roomNameFromFilename(file.name),
+            localProblem: null,
+            serverStatus: null, // 'valid' | 'invalid' | 'created' | 'failed'
+            serverMessage: null,
+            totalRows: null,
+            warnings: [],
+        }));
+        // Allow picking the same files again after removing them.
+        e.target.value = '';
+        if (added.length === 0) return;
+        setImportItems((items) => recheckImportItems([...items, ...added]));
+        setImportError(null);
+        setPreviewError(null);
+    };
+
+    const handleRemoveImportItem = (key) => {
+        setImportItems((items) => recheckImportItems(items.filter((item) => item.key !== key)));
+        setImportPreview((preview) => (preview?.key === key ? null : preview));
+    };
+
+    const handleClearImportItems = () => {
+        setImportItems([]);
+        setImportPreview(null);
+        setImportError(null);
+        setPreviewError(null);
+    };
+
+    /** Record per-file server results for the items with the given keys (same order). */
+    const applyBatchResults = (keys, results, successStatus, failureStatus) => {
+        const byKey = new Map(keys.map((key, i) => [key, results[i]]));
+        setImportItems((items) => items.map((item) => {
+            const result = byKey.get(item.key);
+            if (!result) return item;
+            const ok = result.status === 'ok' || result.status === 'created';
+            return {
+                ...item,
+                serverStatus: ok ? successStatus : failureStatus,
+                serverMessage: ok ? null : result.error,
+                totalRows: result.total_rows ?? item.totalRows,
+                warnings: result.warnings || [],
+            };
+        }));
+    };
+
+    /**
+     * Send `items` to `request` in chunks that respect the server limits,
+     * reporting progress.  A chunk whose whole request fails marks its files
+     * and the next chunk is still sent.
+     * @returns {Promise<number>} How many files the server accepted.
+     */
+    const runInChunks = async (items, label, request, successStatus, failureStatus) => {
+        const byFile = new Map(items.map((item) => [item.file, item]));
+        const chunks = chunkFiles(items.map((item) => item.file), importLimits);
+        let done = 0;
+        let succeeded = 0;
+        setImportProgress({ label, done, total: items.length });
+        for (const chunk of chunks) {
+            const keys = chunk.map((file) => byFile.get(file).key);
+            try {
+                const response = await request(chunk);
+                succeeded += response.succeeded;
+                applyBatchResults(keys, response.results, successStatus, failureStatus);
+            } catch (err) {
+                applyBatchResults(keys, chunk.map(() => ({ status: 'failed', error: err.message })), successStatus, failureStatus);
+            }
+            done += chunk.length;
+            setImportProgress({ label, done, total: items.length });
+        }
+        setImportProgress(null);
+        return succeeded;
+    };
+
+    const pendingImportItems = () => importItems.filter((item) => {
+        const status = importItemStatus(item);
+        return status === 'ready' || status === 'valid' || status === 'failed';
+    });
+
+    const handleValidateCsvs = async () => {
+        const pending = pendingImportItems();
+        if (pending.length === 0) return;
         setIsPreviewing(true);
         setPreviewError(null);
         try {
-            const preview = await projectsApi.previewImportCsv(projectId, selectedFile, 20);
-            setImportPreview(preview);
-        } catch (err) {
-            setPreviewError(err.message || 'Failed to preview CSV.');
-            // Reset the file input so the user can re-select the corrected file
-            // without triggering ERR_UPLOAD_FILE_CHANGED on the next attempt.
-            setSelectedFile(null);
-            document.getElementById('csv-file-input').value = '';
+            await runInChunks(pending, 'Validating', (files) => projectsApi.previewImportCsvBatch(projectId, files), 'valid', 'invalid');
         } finally {
             setIsPreviewing(false);
         }
     };
 
-    const handleUploadCsv = async () => {
-        if (!selectedFile) { setImportError('Please select a file to upload.'); return; }
+    const handlePreviewRows = async (item) => {
+        setIsPreviewing(true);
+        setPreviewError(null);
+        try {
+            const preview = await projectsApi.previewImportCsv(projectId, item.file, 20);
+            setImportPreview({ ...preview, key: item.key, filename: item.file.name });
+        } catch (err) {
+            setPreviewError(`${item.file.name}: ${err.message || 'Failed to preview CSV.'}`);
+        } finally {
+            setIsPreviewing(false);
+        }
+    };
+
+    const handleUploadCsvs = async () => {
+        // Files the server already rejected in a validation are not resent.
+        const pending = pendingImportItems().filter((item) => item.serverStatus !== 'invalid');
+        if (pending.length === 0) { setImportError('There are no files ready to import.'); return; }
         setIsUploading(true);
         setImportError(null);
+        let created = 0;
         try {
-            const response = await projectsApi.importCsv(projectId, selectedFile);
-            addToast(`Import successful: ${response.import_details.imported_count} turns imported.`, 'success');
-            setSelectedFile(null);
-            setImportPreview(null);
-            document.getElementById('csv-file-input').value = '';
-            fetchData();
-        } catch (err) {
-            setImportError(err.message || 'Failed to import CSV.');
+            created = await runInChunks(pending, 'Importing', (files) => projectsApi.importCsvBatch(projectId, files), 'created', 'failed');
         } finally {
             setIsUploading(false);
         }
+        const failed = pending.length - created;
+        if (created > 0) {
+            addToast(`${created} chat room${created === 1 ? '' : 's'} imported${failed ? `, ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
+            fetchData();
+        } else {
+            setImportError(`None of the ${failed} file${failed === 1 ? '' : 's'} could be imported; see the list for the reason.`);
+        }
+    };
+
+    const importCounts = importItems.reduce((counts, item) => {
+        const status = importItemStatus(item);
+        counts[status] = (counts[status] || 0) + 1;
+        return counts;
+    }, {});
+    const importableCount = importItems.filter((item) => {
+        const status = importItemStatus(item);
+        return status === 'ready' || status === 'valid' || status === 'failed';
+    }).length;
+    const importBusy = isUploading || isPreviewing;
+    const importStatusLabel = {
+        ready: { class: 'status-unknown', text: 'Ready' },
+        valid: { class: 'status-complete', text: 'Valid' },
+        invalid: { class: 'status-error', text: 'Cannot import' },
+        created: { class: 'status-complete', text: 'Imported' },
+        failed: { class: 'status-error', text: 'Failed' },
     };
 
     // ── Project management ────────────────────────────────────────────────────
@@ -738,20 +880,78 @@ const AdminProjectPage = () => {
             <div className="management-section">
                 <div className="section-header"><h2>Chat Rooms ({chatRooms.length})</h2></div>
                 <div className="import-csv-section">
-                    <h3>Import New Chat Room</h3>
+                    <h3>Import Chat Rooms</h3>
+                    <p className="import-csv-hint">
+                        Select one or more CSV files; each file becomes one chat room named after the file, and names must be unique in the project.
+                        Up to {importLimits.max_file_mb} MB and {importLimits.max_rows.toLocaleString()} turns per file. Large selections are sent in several batches.
+                    </p>
                     <div className="import-csv-row">
-                        <input type="file" id="csv-file-input" accept=".csv" onChange={handleFileSelect} />
-                        <button onClick={handlePreviewCsv} disabled={!selectedFile || isPreviewing} className="action-button secondary">
-                            {isPreviewing ? 'Previewing...' : 'Preview CSV'}
+                        <input type="file" id="csv-file-input" accept=".csv,text/csv" multiple onChange={handleFileSelect} disabled={importBusy} />
+                        <button onClick={handleValidateCsvs} disabled={importableCount === 0 || importBusy} className="action-button secondary">
+                            {isPreviewing ? 'Validating...' : 'Validate'}
                         </button>
-                        <button onClick={handleUploadCsv} disabled={!selectedFile || isUploading} className="action-button">
-                            {isUploading ? 'Uploading...' : 'Upload CSV'}
+                        <button onClick={handleUploadCsvs} disabled={importableCount === 0 || importBusy} className="action-button">
+                            {isUploading ? 'Importing...' : importableCount > 0 ? `Import ${importableCount} room${importableCount === 1 ? '' : 's'}` : 'Import'}
                         </button>
+                        {importItems.length > 0 && (
+                            <button onClick={handleClearImportItems} disabled={importBusy} className="action-button secondary">Clear list</button>
+                        )}
                     </div>
+                    {importProgress && (
+                        <div className="import-progress" role="status">
+                            <progress value={importProgress.done} max={importProgress.total} />
+                            <span>{importProgress.label} {importProgress.done} / {importProgress.total} files</span>
+                        </div>
+                    )}
+                    {importItems.length > 0 && (
+                        <div className="import-file-list">
+                            <div className="import-preview-header">
+                                <strong>{importItems.length} file{importItems.length === 1 ? '' : 's'} selected</strong>
+                                {importCounts.created ? ` · ${importCounts.created} imported` : ''}
+                                {importCounts.invalid || importCounts.failed ? ` · ${(importCounts.invalid || 0) + (importCounts.failed || 0)} with problems` : ''}
+                            </div>
+                            <div className="import-preview-table">
+                                <table>
+                                    <thead><tr><th>File</th><th>Room name</th><th>Turns</th><th>Status</th><th>Actions</th></tr></thead>
+                                    <tbody>
+                                        {importItems.map((item) => {
+                                            const itemStatus = importItemStatus(item);
+                                            const label = importStatusLabel[itemStatus];
+                                            const message = item.localProblem || item.serverMessage;
+                                            return (
+                                                <tr key={item.key}>
+                                                    <td>{item.file.name}</td>
+                                                    <td>{item.roomName || '-'}</td>
+                                                    <td>{item.totalRows ?? '-'}</td>
+                                                    <td>
+                                                        <span className={`status-badge ${label.class}`}>{label.text}</span>
+                                                        {message && <div className="preview-warning">{message}</div>}
+                                                        {item.warnings.length > 0 && (
+                                                            <div className="import-item-warnings" title={item.warnings.join('\n')}>
+                                                                {item.warnings.length} warning{item.warnings.length === 1 ? '' : 's'}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="import-item-actions">
+                                                        {itemStatus !== 'created' && (
+                                                            <>
+                                                                <button onClick={() => handlePreviewRows(item)} disabled={importBusy || !/\.csv$/i.test(item.file.name)} className="action-button secondary small">Rows</button>
+                                                                <button onClick={() => handleRemoveImportItem(item.key)} disabled={importBusy} className="action-button secondary small">Remove</button>
+                                                            </>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                     {previewError && <ErrorMessage type="warning" title="Preview Failed" message={previewError} />}
                     {importPreview && (
                         <div className="import-preview">
-                            <div className="import-preview-header"><strong>Total rows:</strong> {importPreview.total_rows}</div>
+                            <div className="import-preview-header"><strong>{importPreview.filename}</strong> · <strong>Total rows:</strong> {importPreview.total_rows}</div>
                             {importPreview.warnings?.length > 0 && (
                                 <div className="import-preview-warnings">
                                     {importPreview.warnings.map((w, i) => <div key={`warn-${i}`} className="preview-warning">{w}</div>)}

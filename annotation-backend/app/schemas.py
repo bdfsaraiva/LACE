@@ -488,6 +488,38 @@ class ChatRoomImportResponse(BaseModel):
     import_details: CSVImportResponse  # Import statistics
 
 
+class ChatRoomImportLimits(BaseModel):
+    """Upload limits the client must respect when importing chat rooms."""
+    max_file_mb: int
+    max_rows: int
+    max_batch_files: int
+    max_batch_mb: int
+
+
+class BatchChatRoomFileResult(BaseModel):
+    """Outcome for one file of a batch chat-room import or preview.
+
+    ``status`` is ``"created"`` (import) or ``"ok"`` (preview) on success and
+    ``"failed"`` otherwise; ``error`` then says why.
+    """
+    filename: str
+    room_name: Optional[str] = None
+    status: str
+    error: Optional[str] = None
+    total_rows: Optional[int] = None
+    warnings: List[str] = []
+    chat_room: Optional[ChatRoom] = None
+    import_details: Optional[CSVImportResponse] = None
+
+
+class BatchChatRoomImportResponse(BaseModel):
+    """Per-file results of a batch chat-room import or preview."""
+    total_files: int
+    succeeded: int
+    failed: int
+    results: List[BatchChatRoomFileResult]
+
+
 # ---------------------------------------------------------------------------
 # Annotation Import Schemas (Phase 2)
 # ---------------------------------------------------------------------------

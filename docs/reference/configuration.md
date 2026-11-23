@@ -37,6 +37,8 @@ LACE is configured via environment variables. Copy `.env.example` to `.env` at t
 | `AUTH_RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window duration in seconds |
 | `MAX_UPLOAD_MB` | `10` | Maximum CSV upload size in megabytes |
 | `MAX_IMPORT_ROWS` | — | Maximum number of rows per CSV import (unlimited if unset) |
+| `MAX_BATCH_FILES` | `50` | Maximum number of CSV files in one batch chat-room import request |
+| `MAX_BATCH_UPLOAD_MB` | `50` | Maximum combined size of one batch import request; keep it below the proxy body limit (`client_max_body_size 100m` in `annotation_ui/nginx.conf`) |
 
 ---
 

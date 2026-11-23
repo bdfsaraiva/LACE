@@ -38,6 +38,15 @@ from ..utils.csv_utils import (
     preview_annotations_from_csv,
 )
 from ..utils.filename_utils import sanitize_filename
+from ..utils.chat_room_import import (
+    RoomImportError,
+    create_room_with_messages,
+    existing_room_names,
+    import_details as room_import_details,
+    parse_chat_room_csv,
+    room_name_exists,
+    room_name_from_filename,
+)
 from ..utils.upload_limits import enforce_max_upload_size, enforce_max_rows
 from fastapi.responses import Response, JSONResponse
 import zipfile
@@ -395,6 +404,67 @@ async def preview_chat_room_csv(
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
+def _import_limits() -> schemas.ChatRoomImportLimits:
+    """Current chat-room import limits, from the settings."""
+    return schemas.ChatRoomImportLimits(
+        max_file_mb=settings.MAX_UPLOAD_MB,
+        max_rows=settings.MAX_IMPORT_ROWS,
+        max_batch_files=settings.MAX_BATCH_FILES,
+        max_batch_mb=settings.MAX_BATCH_UPLOAD_MB,
+    )
+
+
+def _get_project_or_404(db: Session, project_id: int) -> models.Project:
+    project = crud.get_project(db, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    return project
+
+
+async def _read_batch(files: List[UploadFile]) -> list[tuple[str, bytes]]:
+    """
+    Read every uploaded file of a batch, enforcing the batch limits.
+
+    Raises:
+        HTTPException: 400 if there are no files or too many, 413 if their
+            combined size exceeds ``MAX_BATCH_UPLOAD_MB``.
+    """
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files were uploaded")
+    if len(files) > settings.MAX_BATCH_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A batch can contain at most {settings.MAX_BATCH_FILES} files; got {len(files)}"
+        )
+    max_total = settings.MAX_BATCH_UPLOAD_MB * 1024 * 1024
+    total = 0
+    read: list[tuple[str, bytes]] = []
+    for upload in files:
+        contents = await upload.read()
+        total += len(contents)
+        if total > max_total:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"The files of one batch exceed the {settings.MAX_BATCH_UPLOAD_MB} MB limit"
+            )
+        read.append((upload.filename or "", contents))
+    return read
+
+
+@router.get("/import-limits", response_model=schemas.ChatRoomImportLimits)
+async def get_import_limits(
+    _: models.User = Depends(get_current_admin_user)
+) -> schemas.ChatRoomImportLimits:
+    """
+    Return the chat-room import limits so the UI can split a large selection
+    of CSV files into requests the server accepts.
+    """
+    return _import_limits()
+
+
 @router.post("/projects/{project_id}/import-chat-room-csv", response_model=schemas.ChatRoomImportResponse)
 async def create_chat_room_and_import_csv(
     project_id: int,
@@ -405,16 +475,17 @@ async def create_chat_room_and_import_csv(
     """
     Create a new chat room and import its messages from a CSV file in one step.
 
-    The chat room name is derived from the CSV filename (without extension).
-    Each row must contain ``turn_id``, ``user_id``, and ``turn_text`` columns;
-    the optional ``reply_to_turn`` column links a turn to its direct predecessor.
+    The chat room name is derived from the CSV filename (without extension)
+    and must be unique within the project.  Each row must contain ``turn_id``,
+    ``user_id``, and ``turn_text`` columns; the optional ``reply_to_turn``
+    column links a turn to its direct predecessor.
 
     If a ``reply_to_turn`` value references a ``turn_id`` that does not exist
     in the file, the reference is cleared and a warning is recorded rather than
     failing the import.
 
-    If the overall import fails after the chat room has already been created,
-    the room is deleted to avoid leaving an empty room in the database.
+    The whole file is validated before anything is written, and the room and
+    its messages are committed together, so a failed import creates no room.
 
     Args:
         project_id: Primary key of the project to import into.
@@ -426,124 +497,140 @@ async def create_chat_room_and_import_csv(
 
     Raises:
         HTTPException: 404 if the project does not exist.
-        HTTPException: 400 if the file is not a CSV, exceeds limits, or cannot
-            be parsed.
+        HTTPException: 409 if the project already has a room with this name.
+        HTTPException: 413 if the file exceeds the upload size limit.
+        HTTPException: 400 if the file is not a CSV, exceeds the row limit, or
+            cannot be parsed.
     """
-    # Check project exists
-    project = crud.get_project(db, project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
-        )
-
-    # Validate file type
-    if not file.filename or not file.filename.lower().endswith('.csv'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be a CSV and have a filename"
-        )
-
-    # Save uploaded file temporarily
-    safe_filename = sanitize_filename(os.path.basename(file.filename))
-    temp_file_path = f"uploads/{safe_filename}"
-    new_chat_room = None
+    _get_project_or_404(db, project_id)
     try:
-        contents = await file.read()
-        enforce_max_upload_size(len(contents), settings.MAX_UPLOAD_MB, "CSV upload")
-        os.makedirs("uploads", exist_ok=True)
-        with open(temp_file_path, "wb") as f:
-            f.write(contents)
-        
-        # Validate CSV format first
-        validate_csv_format(temp_file_path)
-        
-        # Import messages using our simple utility
-        messages = import_chat_messages(temp_file_path)
-        enforce_max_rows(len(messages), settings.MAX_IMPORT_ROWS, "CSV messages")
-        existing_turns = {m["turn_id"] for m in messages if m.get("turn_id")}
-
-        # Create chat room using filename (remove extension)
-        chat_room_name = os.path.splitext(file.filename)[0]
-        chat_room_create_schema = schemas.ChatRoomCreate(name=chat_room_name, project_id=project_id)
-        new_chat_room = crud.create_chat_room(db, chat_room=chat_room_create_schema)
-        
-        # Import messages to database
-        imported_count = 0
-        skipped_count = 0
-        errors = []
-        warnings = []
-        # Rows to insert, and their turn_ids.  The room is new, so a duplicate
-        # can only come from an earlier row of the same file; tracking it here
-        # avoids one SELECT per row.
-        new_messages: list[schemas.ChatMessageCreate] = []
-        imported_turns: set[str] = set()
-
-        for message in messages:
-            try:
-                # Create message schema
-                message_schema = schemas.ChatMessageCreate(
-                    turn_id=message['turn_id'],
-                    user_id=message['user_id'],
-                    turn_text=message['turn_text'],
-                    reply_to_turn=message.get('reply_to_turn')
-                )
-                
-                # Check for a duplicate turn_id earlier in the file
-                if message_schema.turn_id in imported_turns:
-                    skipped_count += 1
-                    warnings.append(f"Message with turn_id {message['turn_id']} already exists")
-                    continue
-                
-                # Validate reply_to_turn if present
-                reply_to_turn = message.get('reply_to_turn')
-                if reply_to_turn and reply_to_turn not in existing_turns:
-                    warnings.append(
-                        f"Message {message['turn_id']} references missing reply_to_turn {reply_to_turn}; cleared."
-                    )
-                    message_schema.reply_to_turn = None
-                
-                new_messages.append(message_schema)
-                imported_turns.add(message_schema.turn_id)
-                imported_count += 1
-
-            except Exception as e:
-                errors.append(f"Error importing message {message.get('turn_id', 'unknown')}: {str(e)}")
-                skipped_count += 1
-
-        # Insert every row in one batch, then commit
-        crud.create_chat_messages(db, messages=new_messages, chat_room_id=new_chat_room.id)
-        db.commit()
-        
-        return schemas.ChatRoomImportResponse(
-            chat_room=new_chat_room,
-            import_details=schemas.CSVImportResponse(
-                total_messages=len(messages),
-                imported_count=imported_count,
-                skipped_count=skipped_count,
-                errors=errors,
-                warnings=warnings
+        room_name = room_name_from_filename(file.filename)
+        # Fail on a taken name before reading and parsing the file.
+        if room_name_exists(db, project_id, room_name):
+            raise RoomImportError(
+                f"A chat room named '{room_name}' already exists in this project",
+                status_code=409,
             )
+        contents = await file.read()
+        parsed = parse_chat_room_csv(
+            file.filename, contents, settings.MAX_UPLOAD_MB, settings.MAX_IMPORT_ROWS
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        if new_chat_room is not None:
-            try:
-                db.delete(new_chat_room)
-                db.commit()
-            except Exception:
-                db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV file: {str(e)}"
-        )
-    finally:
-        # Clean up temporary file
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+        new_chat_room = create_room_with_messages(db, project_id, parsed)
+    except RoomImportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    return schemas.ChatRoomImportResponse(
+        chat_room=new_chat_room,
+        import_details=room_import_details(parsed)
+    )
+
+
+@router.post("/projects/{project_id}/import-chat-rooms-csv/preview", response_model=schemas.BatchChatRoomImportResponse)
+async def preview_chat_rooms_batch(
+    project_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+) -> schemas.BatchChatRoomImportResponse:
+    """
+    Validate several chat-room CSV files without importing anything.
+
+    Each file is parsed as the import would parse it and its room name is
+    checked against the project's rooms and against the other files of the
+    batch.  A file that would fail is reported with ``status="failed"``.
+
+    Raises:
+        HTTPException: 404 if the project does not exist.
+        HTTPException: 400 / 413 if the batch breaks the file-count or
+            combined-size limit.
+    """
+    _get_project_or_404(db, project_id)
+    batch = await _read_batch(files)
+    taken = existing_room_names(db, project_id)
+    seen_in_batch: set[str] = set()
+    results: list[schemas.BatchChatRoomFileResult] = []
+
+    for filename, contents in batch:
+        result = schemas.BatchChatRoomFileResult(filename=filename, status="ok")
+        try:
+            result.room_name = room_name_from_filename(filename)
+            if result.room_name in taken:
+                raise RoomImportError(
+                    f"A chat room named '{result.room_name}' already exists in this project", 409
+                )
+            if result.room_name in seen_in_batch:
+                raise RoomImportError(
+                    f"Another file in this batch is also named '{result.room_name}'", 409
+                )
+            seen_in_batch.add(result.room_name)
+            parsed = parse_chat_room_csv(
+                filename, contents, settings.MAX_UPLOAD_MB, settings.MAX_IMPORT_ROWS
+            )
+            result.total_rows = parsed.total_messages
+            result.warnings = parsed.warnings + parsed.errors
+        except RoomImportError as e:
+            result.status = "failed"
+            result.error = e.message
+        results.append(result)
+
+    succeeded = sum(1 for r in results if r.status == "ok")
+    return schemas.BatchChatRoomImportResponse(
+        total_files=len(results), succeeded=succeeded, failed=len(results) - succeeded, results=results
+    )
+
+
+@router.post("/projects/{project_id}/import-chat-rooms-csv", response_model=schemas.BatchChatRoomImportResponse)
+async def import_chat_rooms_batch(
+    project_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_admin_user)
+) -> schemas.BatchChatRoomImportResponse:
+    """
+    Create one chat room per uploaded CSV file.
+
+    Files are imported independently: each one is fully validated first and
+    then committed in its own transaction together with its messages.  A file
+    that fails (bad format, too large, or a room name already used in the
+    project or earlier in the batch) creates no room and does not stop the
+    others.  The response reports the outcome of every file.
+
+    Raises:
+        HTTPException: 404 if the project does not exist.
+        HTTPException: 400 / 413 if the batch breaks the file-count or
+            combined-size limit; nothing is imported in that case.
+    """
+    _get_project_or_404(db, project_id)
+    batch = await _read_batch(files)
+    seen_in_batch: set[str] = set()
+    results: list[schemas.BatchChatRoomFileResult] = []
+
+    for filename, contents in batch:
+        result = schemas.BatchChatRoomFileResult(filename=filename, status="created")
+        try:
+            result.room_name = room_name_from_filename(filename)
+            if result.room_name in seen_in_batch:
+                raise RoomImportError(
+                    f"Another file in this batch is also named '{result.room_name}'", 409
+                )
+            seen_in_batch.add(result.room_name)
+            parsed = parse_chat_room_csv(
+                filename, contents, settings.MAX_UPLOAD_MB, settings.MAX_IMPORT_ROWS
+            )
+            result.total_rows = parsed.total_messages
+            room = create_room_with_messages(db, project_id, parsed)
+            result.chat_room = schemas.ChatRoom.model_validate(room)
+            result.import_details = room_import_details(parsed)
+            result.warnings = parsed.warnings
+        except RoomImportError as e:
+            result.status = "failed"
+            result.error = e.message
+        results.append(result)
+
+    succeeded = sum(1 for r in results if r.status == "created")
+    return schemas.BatchChatRoomImportResponse(
+        total_files=len(results), succeeded=succeeded, failed=len(results) - succeeded, results=results
+    )
 
 @router.put("/chat-rooms/{chat_room_id}", response_model=schemas.ChatRoom)
 async def update_chat_room(

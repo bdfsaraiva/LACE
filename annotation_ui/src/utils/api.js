@@ -41,6 +41,28 @@ const api = axios.create({
     },
 });
 
+/** Timeout for one batch chat-room import request (several files, each written to the DB). */
+const BATCH_IMPORT_TIMEOUT_MS = 120000;
+
+/**
+ * Human-readable message for a failed batch-import request.
+ * @param {Error} error - The axios error.
+ * @param {string} fallback - Message used when the server gave no detail.
+ * @returns {string}
+ */
+const batchImportErrorMessage = (error, fallback) => {
+    if (!error.response) {
+        return error.code === 'ECONNABORTED'
+            ? 'The server took too long to respond. Try again with fewer files.'
+            : 'Network error or server is not responding. Please check your connection and try again.';
+    }
+    if (error.response.status === 403) return 'You do not have permission to import files.';
+    const detail = error.response.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (error.response.status === 413) return 'The files are too large for one upload.';
+    return fallback;
+};
+
 /**
  * Store a token response from `/auth/token` or `/auth/refresh`.
  * @param {{access_token: string, refresh_token: string, session_expires_at: number}} tokens
@@ -370,6 +392,68 @@ export const projects = {
                 error.response.data?.detail || 
                 'Failed to import file. Please check the file format and try again.'
             );
+        }
+    },
+
+    /**
+     * Fetch the chat-room import limits (admin only).
+     * @returns {Promise<Object>} `ChatRoomImportLimits`: `max_file_mb`, `max_rows`,
+     *   `max_batch_files`, `max_batch_mb`.
+     */
+    getImportLimits: async () => {
+        const response = await api.get('/admin/import-limits');
+        return response.data;
+    },
+
+    /**
+     * Validate several chat-room CSV files without importing them (admin only).
+     *
+     * One request; the caller splits large selections with `chunkFiles`.
+     *
+     * @param {number} projectId
+     * @param {File[]} files
+     * @returns {Promise<Object>} `BatchChatRoomImportResponse` with one result per file.
+     * @throws {Error} With a human-readable message when the whole request fails.
+     */
+    previewImportCsvBatch: async (projectId, files) => {
+        try {
+            const formData = new FormData();
+            files.forEach((file) => formData.append('files', file));
+            const response = await api.post(
+                `/admin/projects/${projectId}/import-chat-rooms-csv/preview`,
+                formData,
+                { headers: { 'Content-Type': 'multipart/form-data' }, timeout: BATCH_IMPORT_TIMEOUT_MS }
+            );
+            return response.data;
+        } catch (error) {
+            throw new Error(batchImportErrorMessage(error, 'Failed to validate the files.'));
+        }
+    },
+
+    /**
+     * Create one chat room per CSV file (admin only).
+     *
+     * Each file is imported on its own: a file that fails creates no room and
+     * does not stop the others.  One request; the caller splits large
+     * selections with `chunkFiles`.
+     *
+     * @param {number} projectId
+     * @param {File[]} files
+     * @returns {Promise<Object>} `BatchChatRoomImportResponse` with one result per file.
+     * @throws {Error} With a human-readable message when the whole request fails.
+     */
+    importCsvBatch: async (projectId, files) => {
+        try {
+            const formData = new FormData();
+            files.forEach((file) => formData.append('files', file));
+            const response = await api.post(
+                `/admin/projects/${projectId}/import-chat-rooms-csv`,
+                formData,
+                { headers: { 'Content-Type': 'multipart/form-data' }, timeout: BATCH_IMPORT_TIMEOUT_MS }
+            );
+            return response.data;
+        } catch (error) {
+            throw new Error(batchImportErrorMessage(error, 'Failed to import the files.'));
         }
     },
 
